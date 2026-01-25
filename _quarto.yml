@@ -1,0 +1,45 @@
+project:
+  type: default
+  render:
+    - template-computo-python.qmd
+    - README.qmd
+
+title: "Template for contribution to Computo"
+subtitle: "Example dedicated to `Python` users"
+author:
+  - name: Jane Doe
+    corresponding: true
+    email: janedoe@nowhere.moon
+    url: https://janedoe.someplace.themoon.org
+    orcid: 0000-0000-0000-0000
+    affiliations:
+      - name: Name of Affiliation one
+        department: Statistics
+        url: https://someplace.themoon.org
+  - name: John Doe
+    email: johndoe@nowhere.moon
+    url: https://johndoe.someplace.themoon.org
+    orcid: 0000-0000-0000-0000
+    affiliations:
+      - name: Name of Affiliation two
+        department: Computer Science
+        url: https://someplace.themoon.org
+date: last-modified
+date-modified: last-modified
+description: |
+  Template for preparing a submission to Computo, using the [quarto journal extension](https://github.com/computorg/computo-quarto-extension), the Jupyter kernel (Python user) and the environment files to set-up the dependencies.
+
+  For a detailed, step-by-step guide on preparing your article, setting up the continuous integration and submitting it to Computo, please consult the [guidelines for authors](https://computo-journal.org/site/guidelines-authors.html).
+abstract: >+
+  Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur posuere vestibulum facilisis. Aenean pretium orci augue, quis lobortis libero accumsan eu. Nam mollis lorem sit amet pellentesque ullamcorper. Curabitur lobortis libero eget malesuada vestibulum. Nam nec nibh massa. Pellentesque porttitor cursus tellus. Mauris urna erat, rhoncus sed faucibus sit amet, venenatis eu ipsum.
+keywords: [key1, key2, key3]
+bibliography: references.bib
+github-user: computorg
+repo: "template-computo-r"
+draft: true # set to false once the build is running
+published: false # will be set to true once accepted
+license: CC-BY-4.0
+format:
+  computo-html: default
+  computo-pdf: default
+jupyter: python3

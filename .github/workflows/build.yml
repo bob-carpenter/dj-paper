@@ -1,0 +1,24 @@
+name: Main Workflows
+
+on:
+  schedule:
+    - cron: "0 8 * * 0"
+  push:
+    branches: ["main","master"]
+  repository_dispatch:
+    types: [custom-event] 
+  workflow_dispatch:
+  pull_request:
+    branches: ["main","master"]
+
+
+jobs:
+  call_env_workflow:
+    uses: computorg/workflows/.github/workflows/global-env.yml@main
+  call_quartopublish_workflow:
+    permissions:
+      id-token: write
+      contents: write
+      pages: write
+    uses: computorg/workflows/.github/workflows/publish-render.yml@main
+    needs: call_env_workflow

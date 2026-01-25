@@ -1,0 +1,197 @@
+# Introduction
+
+## About this document
+
+This document, accompanied by the [customized GitHub repository](https://github.com/computorg/template-computo-python/), provides a template for writing contributions to **Computo** [@computo].
+
+::: {.callout-tip}
+## Note
+This document provides only the key formatting principles. For a detailed, step-by-step guide on preparing your article and submitting it to Computo, please consult the [guidelines for authors](https://computo-journal.org/site/guidelines-authors.html).
+:::
+
+## Quarto
+
+[Quarto](https://quarto.org/) is a versatile formatting system for authoring documents integrating markdown, LaTeX and code blocks interpreted either via Jupyter or Knitr (thus supporting Python, R and Julia). It relies on the [Pandoc](https://pandoc.org/MANUAL.html) document converter.
+
+## Requirements
+
+You need [quarto](https://quarto.org/) installed on your system and the [Computo extension](https://github.com/computorg/computo-quarto-extension) to prepare your document. For the latter, once quarto is installed,  run the following to install the extension in the current directory (it creates a `_extension` directory which is ignored by git thanks to `.gitignore` by default):
+
+```.bash
+quarto add computorg/computo-quarto-extension
+```
+
+[`Python`](https://www.python.org/) and [`Jupyter`](https://jupyter.org/install) must be installed on your computer.
+
+# Formatting
+
+This section covers basic formatting guidelines for quarto documents.
+
+To render a document, run `quarto render`. By default, both PDF and HTML documents are generated:
+
+```.bash
+quarto render # renders both HTML and PDF
+```
+
+::: {.callout-tip}
+## Note
+
+To check the syntax of the formatting below, you can use the `</> source` button at the top right of this document.
+:::
+
+## Basic markdown formatting
+
+**Bold text** or _italic_
+
+- This is a list
+- With more elements
+- It isn't numbered.
+
+But we can also do a numbered list
+
+1. This is my first item
+2. This is my second item
+3. This is my third item
+
+## Mathematics
+
+### Mathematical formulae
+
+[LaTeX](https://www.latex-project.org/) code is natively supported[^lualatex], which makes it possible to use mathematical formulae:
+
+[^lualatex]: We use [lualatex](https://lualatex.org/) for this purpose.
+
+$$
+f(x_1, \dots, x_n; \mu, \sigma^2) =
+\frac{1}{\sigma \sqrt{2\pi}} \exp{\left(- \frac{1}{2\sigma^2}\sum_{i=1}^n(x_i - \mu)^2\right)}
+$$
+
+It is also posible to cross-reference an equation, see @eq-mylabel:
+
+$$
+\begin{aligned}
+D_{x_N} & = \frac12
+\left[\begin{array}{cc}
+x_L^\top & x_N^\top \end{array}\right] \,
+\left[\begin{array}{cc}  L_L & B \\ B^\top & L_N \end{array}\right] \,
+\left[\begin{array}{c}
+x_L \\ x_N \end{array}\right] \\
+& = \frac12 (x_L^\top L_L x_L + 2 x_N^\top B^\top x_L + x_N^\top L_N x_N),
+\end{aligned}
+$$ {#eq-mylabel}
+
+### Theorems and other amsthem-like environments
+
+Quarto includes a nice support for theorems, with predefined prefix labels for theorems, lemmas, proposition, etc. see [this page](https://quarto.org/docs/authoring/cross-references.html#theorems-and-proofs). Here is a simple example:
+
+::: {#thm-slln}
+## Strong law of large numbers
+
+The sample average converges almost surely to the expected value:
+
+$$\overline{X}_n\ \xrightarrow{\text{a.s.}}\ \mu \qquad\textrm{when}\ n \to \infty.$$
+:::
+
+See @thm-slln.
+
+## Python Code
+
+Quarto uses either Jupyter or knitr to render code chunks. This can be triggered in the yaml header. In this tutorial, we use `Jupyter`  (`Python` and `Jupyter` must be installed on your computer).
+
+``` yaml
+---
+title: "My Document"
+author "Jane Doe"
+jupyter: python3
+---
+```
+
+`python` code chunks may be embedded as follows:
+
+```{python python-code}
+import numpy as np
+x = np.random.normal(0, 1, 10)
+x
+```
+
+## Figures
+
+Plots can be generated as follows:
+
+```{python stem-plot}
+#| label: fig-stem-plot
+#| fig-cap: "A basic Stem plot"
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+x = np.linspace(0.1, 2 * np.pi, 41)
+y = np.exp(np.sin(x))
+
+plt.stem(x, y)
+plt.show()
+```
+
+It is also possible to create figures from static images:
+
+:::{#fig-logo}
+
+![](https://raw.githubusercontent.com/computorg/comm/main/design/logo_text_vertical.png){height=200}
+
+Computo logo (label)
+:::
+
+
+## Tables
+
+Tables (with label: `@tbl-mylabel` renders @tbl-mylabel) can be generated with markdown as follows
+
+| Tables   |      Are      |  Cool |
+|----------|:-------------:|------:|
+| col 1 is |  left-aligned | $1600 |
+| col 2 is |    centered   |   $12 |
+| col 3 is | right-aligned |    $1 |
+: my table caption {#tbl-mylabel}
+
+## Handling references {#sec-references}
+
+### Bibliographic references
+
+References are displayed as footnotes using
+[BibTeX](http://www.bibtex.org/), e.g. `[@computo]` will be displayed
+as [@computo], where `computo` is the bibtex key for this specific
+entry. The bibliographic information is automatically retrieved from
+the `.bib` file specified in the header of this document (here:
+`references.bib`).
+
+### Other cross-references
+
+As already (partially) seen, Quarto includes a mechanism similar to the
+bibliographic references for sections, equations, theorems, figures,
+lists, etc. Have a look at [this
+page](https://quarto.org/docs/authoring/cross-references.html).
+
+## Advanced formatting
+
+Advanced formatting features are possible and documented (including interactive plots, pseudo-code, (Tikz) diagrams, Lua filters, mixing R + Python in the same document), but are beyond the scope of this simple introduction. We point several entries in this direction.
+
+::: {.callout-warning}
+## More information
+
+- [The Quarto web site](https://quarto.org) for comprehensive documentation, including:
+  + [Tutorial](https://quarto.org/docs/get-started/)
+  + [User guide](https://quarto.org/docs/guide/)
+  + [Options reference](https://quarto.org/docs/reference/)
+
+- [The template distributed with the Computo Quarto extension](https://computo.sfds.asso.fr/computo-quarto-extension/), which uses such advanced features.
+
+- [Our mock version of the t-SNE paper](https://computo.sfds.asso.fr/published-paper-tsne/), a full and advanced example using Python and the Jupyter kernel.
+
+- [The previously published papers in Computo](https://computo.sfds.asso.fr/publications/) can be used as references.
+
+:::
+
+# References {.unnumbered}
+
+::: {#refs}
+:::

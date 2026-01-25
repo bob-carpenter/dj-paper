@@ -1,0 +1,7 @@
+name: template-python
+channels:
+  - conda-forge
+dependencies:
+  - jupyter
+  - matplotlib
+  - numpy

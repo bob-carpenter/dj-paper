@@ -1,0 +1,51 @@
+# R and co
+.Rhistory
+.Rprofile
+.Rapp.history
+.RData
+.Ruserdata
+*.Rproj
+.Rproj.user
+.Rproj.user/
+/*.Rcheck/
+renv/
+
+# Python and co
+_environment
+/.micromamba/
+/.joblib
+/.pytest_cache/
+
+# Quarto tmp files
+/.quarto/
+/*_files
+/*_cache
+/_freeze
+_site/
+/cache/
+
+# Quarto extension files
+_extensions/
+logo_text_white.pdf
+logo_notext_white.png
+
+# Quarto output files
+template-computo-R.html
+template-computo-R.pdf
+template-computo-python.html
+template-computo-python.pdf
+template-computo-python.ipynb
+template-computo-python.tex
+template-computo-julia.html
+template-computo-julia.pdf
+template-computo-julia.tex
+
+# Latex compilation files
+*.aux
+*.log
+*.toc
+
+# Various system files
+DS_Store
+/.luarc.json
+
