@@ -1,5 +1,246 @@
 # Introduction
 
+## Bayesian workflow
+
+@gelman2013bda begin their textbook by laying out the three steps of Bayesian data analysis:
+
+1. Design a joint probabilty distribution for observable data and unobservable parameters.
+2. Perform inference to generate a posterior over parameters conditioned on data and compute expectations for quantities of interest.
+3.  Evaluate the model fit and what it tells us about our quantities of interest.
+
+If the evaluation in (3) is not sufficient, then go back to (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on evaluating multiple models simultaneously and transparently reporting their exploration and comparison.
+
+A probabilistic programming language (PPL) primarily provides support for task (1), and is often integrated into an environment that provides support for task (2), and some rudimentary tools for task (3).  In this paper, we are going to focus on the job the PPL is doing toward (1).  That is, we will assume the goal is to implement efficient and scalable differentiable Bayesian models in a way that is both easy to code and easy to read.  
+
+For step (2), we recommend the Python package Blackjax [@cabezas2024blackjax]. Blackjax includes implementations of Stan's primary inference methods, NUTS, ADVI, and Pathfinder.  It is being maintained and extended, and already includes several other useful algorithms, including isokinetic (aka microcanonical) sampling [@robnik2025metropolis], sequential Monte Carlo [@doucet2001introduction], elliptical slice sampling [@murray2010elliptical], generalized HMC [@horowitz1991generalized], and even random-walk Metropolis [@hastings1970monte].
+
+For step (3), we recommend the Python package Arviz [@kumar2019arviz].  Arviz provides state-of-the-art convergence monitoring as well as estimation of effective sample size and standard errors, as well as the usual posterior means, standard deviations, and quantiles [@vehtari2021rank].
+
+## Why not just use Stan?
+
+Stan [@carpenter2017stan] is a domain-specific language for expressing differentiable probability densities and posterior predictive quantities.  Stan is a probabilistic programming language in the sense that its variables can be interpreted as random variables.  Stan has been used in almost every area where statistics is applied, and as such, has accumulated a wide variety of training materials around different classes of probabilistic models.  There are textbooks, college classes, and reproducible case studies in all of these areas.  There's a vibrant community with a very active Discourse.  The language is still being expanded and so is it's math library.
+
+The Stan project introduced several state of the art gradient-based inference algorithms including the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], Pathfinder variational inference [@zhang2022pathfinder], and black-box nested Laplace approximations [@margossian2023general].  
+
+So why not just use Stan? The first reason is that Stan is largely CPU-bound.  All of its analysis tools and algorithms run on the CPU.  Although there are ways to call individual functions in a Stan program on the GPU (e.g., Cholesky decomposition) and ways to apply map-reduce across multiple cores, this is not enough.  Stan lacks a way to keep computation in-kernel on the GPU or organize inference to enable single-instruction multiple-data (SIMD) parallelism.  As a result, Stan is not competitive on modern hardware [@sountsov2024running; @maskell2024jaxgpu].
+
+The second obstacle to using Stan is the need to learn a second language. While Stan is not particularly complicated, it does present several difficulties. For example, Stan is indexed from 1, like a lot of mathematics and linear algebra, whereas Python is indexed from 0, like most programming languages.  Translating between 0-based and 1-based indexing is tedious, error-prone, and obfuscates code. Further, Stan is strongly typed and statically compiled, which is safe and leads to fast C++ computation, but this style of coding is unfamiliar to most applied users and does not integrate at all with Python's development environments.  Stan's typing can be an annoyance even for experienced users due to its poor representational choice for containers that mixes C++ standard vectors [@josuttis2012cpp] for arrays and Eigen matrices [@guennebaud2010eigen] for linear algebra. The problem of a second language is further exacerbated by the relative lack of tooling around Stan development (e.g., some simple autocomplete and syntax highlighting plus debug by compile and printf) compared to Python development, which provides well supported integrated development environments.  Finally, while there is a great deal of tutorial and onboarding material around Stan, it not only feels like duplicated effort, it is dwarfed by the tutorial material around statistical computing in Python.
+
+
+## Why not just use PyMC or NumPyro?
+
+The original probabilistic programming language is Bayesian inference using Gibbs Sampling (BUGS) [@lunn2009bugs; @lunn2012bugs], which was released way back in 1991.  In BUGS, Bayesian models are specified with deterministic and stochastic nodes arranged in a directed acyclic graph.  Each node was either input as data, or defined as a (possibly stochastic) function of its direct ancestors in the graph.  This enabled a BUGS model to be used to infer any of the stochastic variables in the model given values for the data nodes and all other stochastic nodes.  This provides a clean way to do things like prior predcitive inference and posterior predictive inference naturally through the graphical structure of the model.  BUGS samples using generalized Gibbs sampling, which is challenging to scale in dimension.
+
+PyMC [@salvatier2016probabilistic] and NumPyro [@phan2019composable] are Python packages that take a directed graphical modeling approach to specifying Bayesian models and are capable of generating JAX code as output.  There are similar packages in other languages, but they do not generate JAX code.  JAGS [@plummer2003jags] is a standalone language that reimplements and extends BUGS and is typically used through R, NIMBLE [@de2017programming] is coded in R, and Turing.jl [@ge2018turing] is coded in Julia.
+
+Like Stan, they efficiently scale in dimension by using gradient-based inference methods.  Like BUGS, they are able to exploit the graphical model structure directly to automate a number of functions that are painful to code in Stan and will largely remain painful to code in what we are proposing here.
+
+When models get more complicated in terms of novel constraints, densities, conditional structures, etc., both PyMC and NumPyro provide escape hatches to let you define transformations and log densities directly in the same way as Stan. This is great for generality, but it blocks the use of graphical model tooling. At this point, we believe it is simpler to just code the models directly in JAX rather than working around the graphical modeling paradigm of PyMC or NumPyro.
+
+A second reason to prefer the approach we are presenting here is that it is much more direct.  By that, we mean that like Stan, the resulting code is implemented transparently in an imperative fashion rather than indirectly through the structure of the directed acyclic graph.  This also makes it straightforward to directly inject calls to JAX in the code.
+
+
+# A linear regression case study
+
+To ground the discussion, let's consider the concrete example of coding a linear regression and using it to predict new observations.
+
+## A multivariate linear regression model
+
+We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are unit scale so that we can assume a weakly informative prior independently over our paraemters,
+$$
+\alpha \sim \textrm{normal}(0, 5)
+\qquad
+\beta_p \sim \textrm{normal}(0, 2.5)
+\qquad
+\sigma \sim \textrm{exponential}(0.5).
+$$
+We then add the conventional data generating process with independent normal errors, 
+$$
+y_n \sim \textrm{normal}(\alpha + x_n \cdot \beta, \sigma).
+$$
+The joint density defining our Bayesian model (with data $x$ taken as an unmodeled constant) is thus
+$$\textstyle
+p(y, \alpha, \beta, \sigma \mid x)
+= \textrm{exponential}(\sigma \mid 0.5)
+  \cdot \textrm{normal}(\alpha \mid 0, 5)
+  \cdot \left( \prod_{p=1}^P \textrm{normal}(\beta_p \mid 0, 2.5) \right)
+  \cdot \left( \prod_{n=1}^N \textrm{normal}(y_n \mid \alpha + x_n \cdot \beta, \sigma) \right).
+$$
+Bayes's rule simply tells us that we can use the joint density as an unnormalized posterior,
+$$
+p(\alpha, \beta, \sigma \mid y, x)
+\propto p(y, \alpha, \beta, \sigma \mid x).
+$$
+
+## The unconstrained posterior density
+
+To simplify inference algorithms, Stan and other PPLs expose an unnormalized log posterior density over unconstrained parameters.  The programs themselves define densities over variables with constraints defined either explicitly (Stan) or implicitly (most other PPLs).  The program's constrained log density is automatically transformed to an unconstrained density with the appropriate change-of-variales adjustment calculated automatically.
+
+Mathematially, given a constrained random variable $X \in C \subseteq \mathbb{R}^D$, with a density $p_X(x)$, and a smooth bijection $f:C \rightarrow \mathbb{R}^N$, we can derive the density of $Y = f(X)$ as $p_Y(y) = p_X(f^{-1}(y)) \cdot \left| \nabla f^{-1}(y) \right|$, where $|\cdot|$ denotes the absolute determinant.  In the univariate case, $\nabla f^{-1}(y)$ reduces to the derivative of the inverse transform at $y$, $(f^{-1})'(y)$.
+
+If there is a sequence of variables being transformed one at a time, the overall Jacobian will be block diagonal, with a Jacobian equal to the product of the Jacobians of the blocks.  This makes it particularly simple to work on the unconstrained scale---we just map unconstrained paramters back to the constrained space using the inverse transform and add the log absolute determinant of its Jacobian.
+
+Stan allows variables to be declared that are lower bounded (for scales), upper bounded, range bounded (for probabilities), affine transforms (for non-centered parameterizations), ordered vectors (for cutpoints in ordinal regressions or identifying mixtures), unit vectors (for points on a hypersphere), simplexes (for categorical probability distributions), sum-to-zero vectors (for identifying varying effects), positive-definite symmetric matrices and their Cholesky factors (e.g., for covariance or precision matrices), and for unit-diagonal positive-definite matrices and their Cholesky factors (e.g., for correlation matrices). The Oryx package, which is part of TensorFlow Probability, provides an even wider range of useful transforms than Stan (e.g., softplus, alternative sigmoid cdfs, tanh, autoregressions, and flows, and many many more).
+
+In our simple regression example, the only constrained parameter is $\sigma > 0$.  We transform positive-constrained parameters using the log transform, e.g., $\sigma^\textrm{unc} = \log \sigma$. The inverse transform is the exponential. Applying the change-of-variables formula and using the fact that $\left| \nabla \exp(u) \right| = \exp(u)$, the correspodning unconstrained density is
+$$
+p^\textrm{unc}(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
+= p(\alpha, \beta, \exp(\sigma^\textrm{unc}) \mid x, y) \cdot \exp(\sigma^\textrm{unc}).
+$$
+On the log scale where we operate to prevent underflow and maintain precision, we have
+$$
+\log p(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
+= \log p(\alpha, \beta, \exp(\sigma^\textrm{unc}) \mid x, y) + \sigma^\textrm{unc}.
+$$
+
+
+
+
+## Inference for Bayesian statistics via MCMC
+
+Inference in Bayesian statistics beyond visualization is largely a matter of evaluating posterior expectations relative to this model.  In our regression model, that looks like
+$$
+\mathbb{E}[f(\alpha, \beta, \sigma) \mid y, x]
+= \int_{\mathbb{R} \times \mathbb{R}^P \times (0, \infty)} 
+f(\alpha, \beta, \sigma) \cdot p(\alpha, \beta, \sigma \mid y, x) \ \textrm{d}(\alpha, \beta, \sigma).
+$$.  
+For example, parameter estimates are given by, e.g.,
+$$
+\widehat{\alpha} = \mathbb{E}[\alpha \mid y, x].
+$$
+The probability of an event $A \subseteq \mathbb{R} \times \mathbb{R}^P \times (0, \infty)$ is 
+$$
+\textrm{Pr}[(\alpha, \beta, \sigma) \in A] = \mathbb{E}[\mathbb{1}_A(\alpha, \beta, \sigma)],
+$$
+where the indicator function $\mathbb{1}_A(a)$ is $1$ if $a \in A$ and $0$ otherwise.  Posterior predictive probabilities for new data $\tilde{y}$ with new covariates $\tilde{x}$ are given by
+$$
+p(\tilde{y} \mid x, y, \tilde{x})
+= \mathbb{E}[p(\tilde{y} \mid \alpha, \beta, \sigma, \tilde{x}) \mid x, y].
+$$
+All of these expectations are evaluated the same way given plug-in estimation based on a posterior sample
+$$
+\alpha^{(m)}, \beta^{(m)}, \sigma^{(m)} \sim p(\alpha, \beta, \sigma \mid x, y)
+$$
+for $0 \leq m < M$, as
+$$
+\mathbb{E}[f(\alpha, \beta, \sigma) \mid x, y] \approx \frac{1}{M} \sum_{m=1}^M f(\alpha^{(m)}, \beta^{(m)}, \sigma^{(m)}).
+$$
+If the draws are marginally taken according to the posterior, the estimates will be unbiased, and if the chains mix well (e.g., they are geometrically ergodic), the Markov chain Monte Carlo central limit theorem applies and standard errors in expectation estimates will decrease at a rate of $\mathcal{O}(1 / \sqrt{M})$ [@roberts2004mcmc].  In practice, we can use the (approximate and asymptotically exact) samplers in the Blackjax package for inference.
+
+## Linear regression in Stan
+
+Here's an example Stan program defining a linear regression.  
+
+```stan
+data {
+  int<lower=0> N, N_new, P;
+  matrix[N, P] x;
+  vector[N] y;
+  matrix[N_new, P] x_new;
+}
+parameters {
+  real alpha;
+  vector[P] beta;
+  real<lower=0> sigma;
+}
+model {
+  alpha ~ normal(0, 5);
+  beta ~ normal(0, 2.5);
+  sigma ~ exponential(0.5);
+  y ~ normal(alpha + beta * x, sigma);
+}
+generated quantities {
+  vector[N_new] y_new = normal_rng(alpha + beta * x_new, sigma);
+}
+```
+
+## Compilation to C++
+
+A Stan model compiles to a C++ class that reads the data in as part of its constructor [@stan2025ref].  The data variables are specified in the `data` block in the Stan program.  Here, we have the sizes, the covariate matrices (`x` plus `x_new` for posterior prediction), and the outcomes (`y`).  The constructed C++ class is immutable and provides several methods, the most central of which is an unconstrained (in the sense of having support over all of $\mathbb{R}^D$) log density function that is templated in order to support automatic differentiation [@carpenter2015ad].  In math, the constraining transform maps $(\alpha, \beta, \sigma^\text{u})$ to $(\alpha, \beta, \exp(\sigma^\text{u}))$.  The transforms are independent and the first two are the identity, so the Jacobian determinant works out to $\exp(\sigma^\text{u})$.  Thus the additive change-of-variables adjustment on the log scale is just $\log \exp(\sigma^\text{u}) = \sigma^\text{u}$.
+
+The model block defines a density function $p()$ over constrained parameters---this is typically derived and coded to implement the unnormalized posterior log density of a Bayesian model.  Densities are read elementwise, with scalar arguments being broadcast where necessary.  With this translation, the unnormalized log posterior over the constrained variables defined by the Stan program's model block is
+$$
+\log p(\alpha, \beta, \sigma \mid x, y)
+ =  \log \textrm{normal}(\alpha \mid 0, 5)
+ +  \sum_{p=1}^P \textrm{normal}(\beta_p \mid 0, 2.5) \\
+ +  \log \textrm{gamma}(\sigma \mid 0.5) 
+ +  \sum_{n=1}^N \textrm{normal}(y_n \mid \alpha + \beta \cdot x_n, \sigma).
+$$
+The corresponding unconstrained log density $q()$ over which inference is performed, adds the log Jacobian adjustment for the change of variables,
+$$
+\log q(\alpha, \beta, \sigma^\text{u} \mid x, y)
+= \log p(\alpha, \beta, \exp(\sigma^\text{u}) \mid x, y) + \sigma^\text{u}.
+$$
+
+To support the changes of variables for reporting constrained output, the compiled C++ code exposes the constraining transform and its Jacobians. For initialization from constrained parameters, there is a matching unconstraining transform.  The model class also supplies methods for determining the shape and names of the constrained and unconstrained parameters.  
+
+The final component of a compiled Stan model is a function to perform predictive inference as defined by the generated quantities block (this can also be done post-hoc with a new program and generated quantities block).  In particular, the model compiles a generated quantities function that takes a random number generator and produces the output defined in the generated quantities block purely by forward sampling without the need for any automatic differentiation.
+
+### Distribution statements are syntactic sugar
+
+To ease the transition to JAX, note that the distribution statements in the model block are just syntactic sugar for incrementing the log target density [@carpenter2017stan].  The model block could have been coded as follows to generate the same C++ code.
+
+```stan
+  target += normal_lupdf(alpha | 0, 5);
+  target += normal_lupdf(beta | 0, 2.5);
+  target += lognormal_lupdf(sigma | 0, 1);
+  target += normal_lupdf(alpha + beta * x, sigma);
+```
+
+Here, the `_lupdf` indicates a log (`l`), unnormalized (`u`), probability density function (`pdf`).  For probability mass functions, replace `pdf` with `pmf`; to preserve normalizing constants, drop the `u`.
+
+
+## Linear regression in JAX with `densejax`
+
+The Stan linear regression can be translated almost line for line into Python using `densejax`.
+
+```python
+from densejax import (
+    real, positive, normal, exponential, normal_rng, model
+)
+
+def linear_regression(x, y, x_new):
+    N, P = x.shape
+    
+    parameters = {
+      'a': real(),
+      'b': real(size=P),
+      's': positive()
+    }                   
+
+    def log_density(a, b, s):
+        lp = 0
+        lp += normal(a, 0, 2)
+        lp += normal(b, 0, 1)
+        lp += exponential(s, 0.5)
+        lp += normal(y, a + x @ b, s)
+        return lp
+
+    def generate(rng, a, b, s):
+        y_new = normal_rng(rng, a + x_new @ b, s)
+        return { 'y_new': y }
+        
+    return model(parameters, log_density, generate)
+```
+
+The resulting `model` object mirrors the C++ object produced by Stan and also the model object produced by BridgeStan [@roualdes2023bridgestan].  Because these simple functions generate fully JAX-embedded code, the log density function can be automatically differentiated and all of the functions can be just-in-time compiled.
+
+can compute log densities and their gradients, as well as transform parameters from the constrained to the unconstrained scale.  The parameter declarations with constraints, such as `positive`.  That allows it to be used for inference by `blackjax`, which has ported NUTS and ADVI from Stan into JAX and much much more.
+
+In Python, the `arviz` package [@kumar2019arviz] provides extensive posterior analysis including means, standard deviations, quantiles, covariances, rank-normalized $\widehat{R}$-statistics for convergence monitoring, effective sample sizes, and estimator standard errors [@vehtari2021rank], as well as efficient approximate leave-one-out cross-validation for model comparison [@vehtari2017practical].
+
+
+
+
+# References {.unnumbered}
+
+::: {#refs}
+:::
+
+
+# OLD STUFF PAST HERE
+
+
 ## About this document
 
 This document, accompanied by the [customized GitHub repository](https://github.com/computorg/template-computo-python/), provides a template for writing contributions to **Computo** [@computo].
@@ -191,7 +432,3 @@ Advanced formatting features are possible and documented (including interactive 
 
 :::
 
-# References {.unnumbered}
-
-::: {#refs}
-:::

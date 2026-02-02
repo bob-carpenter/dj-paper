@@ -4,40 +4,57 @@ project:
     - template-computo-python.qmd
     - README.qmd
 
-title: "Template for contribution to Computo"
-subtitle: "Example dedicated to `Python` users"
+title: "JAX à la Stan"
+subtitle: Bayesian modeling directly in Python
 author:
-  - name: Jane Doe
+  - name: Brian Ward
+    email: bward@flatironinstitute.org
+    url: https://brianward.dev
+    orcid: 0000-0002-9841-3342
+    affiliations:
+      - name: Flatiron Institute
+        department: Center for Computational Mathematics
+        url: https://www.simonsfoundation.org/flatiron/center-for-computational-mathematics/
+  - name: Mitzi Morris
+    email: mitzi212@gmail.com
+    url: https://mitzimorris.github.io
+    orcid: 0000-0002-4658-0966
+    affiliations:
+      - name: Independent Contractor
+        department:
+        url: https://mitzimorris.github.io
+  - name: Andrew Gelman
+    email: bward@flatironinstitute.org
+    url: https://sites.stat.columbia.edu/gelman/
+    orcid: 0000-0002-6975-2601
+    affiliations:
+      - name: Columbia Univesity
+        department: Department of Statistics
+        url: https://stat.columbia.edu
+      - name: Flatiron Institute
+        department: Center for Computational Mathematics
+        url: https://www.simonsfoundation.org/flatiron/center-for-computational-mathematics/
+  - name: Bob Carpenter
     corresponding: true
-    email: janedoe@nowhere.moon
-    url: https://janedoe.someplace.themoon.org
-    orcid: 0000-0000-0000-0000
+    email: bcarpenter@flatironinstitute.org
+    url: https://bob-carpenter.github.io
+    orcid: 0000-0002-2433-9688
     affiliations:
-      - name: Name of Affiliation one
-        department: Statistics
-        url: https://someplace.themoon.org
-  - name: John Doe
-    email: johndoe@nowhere.moon
-    url: https://johndoe.someplace.themoon.org
-    orcid: 0000-0000-0000-0000
-    affiliations:
-      - name: Name of Affiliation two
-        department: Computer Science
-        url: https://someplace.themoon.org
+      - name: Flatiron Institute
+        department: Center for Computational Mathematics
+        url: https://www.simonsfoundation.org/flatiron/center-for-computational-mathematics/
+
 date: last-modified
 date-modified: last-modified
 description: |
-  Template for preparing a submission to Computo, using the [quarto journal extension](https://github.com/computorg/computo-quarto-extension), the Jupyter kernel (Python user) and the environment files to set-up the dependencies.
-
-  For a detailed, step-by-step guide on preparing your article, setting up the continuous integration and submitting it to Computo, please consult the [guidelines for authors](https://computo-journal.org/site/guidelines-authors.html).
-abstract: >+
-  Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur posuere vestibulum facilisis. Aenean pretium orci augue, quis lobortis libero accumsan eu. Nam mollis lorem sit amet pellentesque ullamcorper. Curabitur lobortis libero eget malesuada vestibulum. Nam nec nibh massa. Pellentesque porttitor cursus tellus. Mauris urna erat, rhoncus sed faucibus sit amet, venenatis eu ipsum.
-keywords: [key1, key2, key3]
+abstract:
+  This paper shows how we can code Bayesian models directly in Python with JAX by following the pattern developed in the Stan probabilistic programming language. This allows a direct, line-by-line translation of all of the courses, texts, and case studies for Stan across the physical, biological, and social sciences, engineering, business, health, education, policy, economics, and sports.  In the general case, a Bayesian model is defined by the joint density of observed data and latent parameters. State-of-the-art algorithms require first or second derivatives of the log density with respect to the parameters. Stan was thus designed to make it easy to code differentiable log densities and generate posterior predictive quantities.  Coupled with modern hardware (e.g., multi-core, GPU, and TPU), compiled JAX far exceeds the efficiency and scalabilty of Stan.  The package ArviZ provides the same posterior analysis tools as Stan, and Blackjax provides a wider range of sampling algorithms.  Thus we can bring all of the benefits of Stan-style model building to modern hardware without sacrificing the benefits of a Python integrated programming environment.
+keywords: [JAX, Stan, probabilistic programming, differentiable programming<br /><br />]
 bibliography: references.bib
-github-user: computorg
-repo: "template-computo-r"
-draft: true # set to false once the build is running
-published: false # will be set to true once accepted
+github-user: bob-carpenter
+repo: "dj-paper"
+draft: true
+published: false
 license: CC-BY-4.0
 format:
   computo-html: default

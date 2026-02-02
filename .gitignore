@@ -49,3 +49,5 @@ template-computo-julia.tex
 DS_Store
 /.luarc.json
 
+
+**/*.quarto_ipynb
