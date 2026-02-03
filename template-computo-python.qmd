@@ -2,13 +2,13 @@
 
 ## Bayesian workflow
 
-@gelman2013bda begin their foundational textbook by laying out the three steps of Bayesian data analysis:
+@gelman2013bda begin their foundational textbook by breaking down Bayesian data analysis into three steps.
 
-1. Design a joint probabilty distribution for observable data and unobservable parameters.
-2. Perform inference to generate a posterior sample over parameters conditioned on data and compute expectations for quantities of interest.
+1. Design a joint probability distribution for observable data and unobservable parameters.
+2. Perform inference to generate a posterior sample over parameters conditioned on data.
 3.  Evaluate the model fit and what it tells us about our quantities of interest.
 
-If the evaluation in (3) is not sufficient, then go back to (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on evaluating multiple models simultaneously and transparently reporting their exploration and comparison.
+The authors further suggest that if the evaluation in (3) is not sufficient, then one should go back to (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on evaluating multiple models simultaneously and transparently reporting their exploration and comparison.
 
 A probabilistic programming language (PPL) primarily provides support for task (1), and is often integrated into an environment that provides support for task (2), and some rudimentary tools for task (3).  In this paper, we are going to focus on the job the PPL is doing toward (1), while providing guidance for steps (2) and (3).  The goal is a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
 
@@ -18,57 +18,63 @@ For step (3), we recommend the Python package Arviz [@kumar2019arviz].  Arviz pr
 
 ## Why not just use Stan?
 
-Stan [@carpenter2017stan] is a domain-specific language for expressing differentiable probability densities and posterior predictive quantities.  Stan is a probabilistic programming language in the sense that its variables can be interpreted as random variables.  Stan has been used in almost every area where statistics is applied, and as such, has accumulated an unmatched depth and breadth of training materials around different classes of probabilistic models.  There are textbooks, college classes, and reproducible case studies in all of these areas.  There's a vibrant community with a very active Discourse.  The language is still being expanded and so is it's math library.
+Stan [@carpenter2017stan] is a domain-specific language for expressing differentiable probability densities and posterior predictive quantities.  Stan is a probabilistic programming language in the sense that its variables can be interpreted as random variables.  Stan has been used in almost every area where statistics is applied, and as such, has accumulated an unmatched depth and breadth of training materials around different classes of probabilistic models.  There are textbooks, college classes, and reproducible case studies in all of these areas.  There's a vibrant community with a high volume [discussion forum](https://discourse.mc-stan.org).  The language is still being expanded and so is it's math library.
 
 The Stan project introduced several state of the art gradient-based inference algorithms including the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], Pathfinder variational inference [@zhang2022pathfinder], and black-box nested Laplace approximations [@margossian2023general] as well as posterior analysis tools such as split- and ranked-$\widehat{R}$ and corresponding bulk and tail effective sample size [@vehtari2021rank], leave-one-out cross-validation [@vehtari2017practical], refined simulation-based calibration checks [@talts2018validating], and prior predictive checks [@gabry2019visualization].  It is often used as the basis of methodological developments such as Bayesian workflow [@gelman2020workflow].
  
 So why not just use Stan? The first reason is that Stan is largely CPU-bound.  All of its analysis tools and algorithms run on the CPU.  Although there are ways to call individual functions in a Stan program on the GPU (e.g., Cholesky decomposition) and ways to apply map-reduce across multiple cores, this is not enough.  Stan lacks a way to keep computation in-kernel on the GPU or organize inference to enable single-instruction multiple-data (SIMD) parallelism.  As a result, Stan is not competitive on modern hardware [@sountsov2024running; @maskell2024jaxgpu].
 
-The second obstacle to using Stan is the need to learn a second language. While Stan is not particularly complicated, it does present several difficulties. For example, Stan is indexed from 1, like a lot of mathematics and linear algebra, whereas Python is indexed from 0, like most programming languages.  Translating between 0-based and 1-based indexing is tedious, error-prone, and obfuscates code. Further, Stan is strongly typed and statically compiled, which is safe and leads to fast C++ computation, but this style of coding is unfamiliar to most applied users and does not integrate at all with Python's development environments.  Stan's typing can be an annoyance even for experienced users due to its poor representational choice for containers that mixes C++ standard vectors [@josuttis2012cpp] for arrays and Eigen matrices [@guennebaud2010eigen] for linear algebra. The problem of a second language is further exacerbated by the relative lack of tooling around Stan development (e.g., some simple autocomplete and syntax highlighting plus debug by compile and printf) compared to Python development, which provides well supported integrated development environments.  Finally, while there is a great deal of tutorial and onboarding material around Stan, it not only feels like duplicated effort, it is dwarfed by the tutorial material around statistical computing in Python.
+The second obstacle to using Stan is the need to learn a second language. While Stan is not particularly complicated, it does present several additional difficulties beyond unfamiliar syntax and semantics.
+
+* Stan is indexed from 1, like much of mathematics and in particular, linear algebra, whereas Python is indexed from 0, like most programming languages.  Translating between 0-based and 1-based indexing is tedious, error-prone, and obfuscates code.
+* Stan is strongly typed and statically compiled, which has the benefit of being type-safe at run time and leads to fast C++ computation.  The downside is that this kind of static typing is unfamiliar to most of Stan's intended users.  Stan's typing can be an annoyance even for experienced users due to its poor representational choice for containers that mixes C++ standard vectors [@josuttis2012cpp] for arrays and Eigen matrices [@guennebaud2010eigen] for linear algebra.  This may sound harsh, but it was our fault as the original developers of Stan.
+* Stan requires a scripting language like R, Python, and Julia, in which to run rather than providing a seamless single-language experience.  The interface between these languages and Stan is minimal---Stan is just being called as a black box to return samples.
+* There is relatively little tooling to aid with Stan development.  Currently, it's just autocomplete and syntax highlighting.  Python, in contrast, has several well supported integrated development environments with tooling for debugging, generating notebooks, integration with chatbots, etc.
+* While there is a great deal of tutorial and onboarding material around Stan, it has to split its attention among several interfaces (two interfaces in R and Python and one in Julia).  Taken together, even Stan's extensive documentation is dwarfed by the pedagogical material around scientific computing in Python, though perhaps not directly related to Bayesian statistics.
 
 
 ## Why not just use PyMC or NumPyro?
 
-The original probabilistic programming language is Bayesian inference using Gibbs Sampling (BUGS) [@lunn2009bugs; @lunn2012bugs], which was released way back in 1991.  In BUGS, Bayesian models are specified with deterministic and stochastic nodes arranged in a directed acyclic graph.  Each node was either input as data, or defined as a (possibly stochastic) function of its direct ancestors in the graph.  This enabled a BUGS model to be used to infer any of the stochastic variables in the model given values for the data nodes and all other stochastic nodes.  This provides a clean way to do things like prior predcitive inference and posterior predictive inference naturally through the graphical structure of the model.  BUGS samples using generalized Gibbs sampling, which is challenging to scale in dimension.
+The very first probabilistic programming language of which we are aware is BUGS (Bayesian inference using Gibbs Sampling) [@lunn2009bugs; @lunn2012bugs], which was released way back in 1991.  In BUGS, Bayesian models are specified with deterministic and stochastic nodes arranged in a directed acyclic graph.  Each node was either input as data, or defined as a (possibly stochastic) function of its direct ancestors in the graph.  This enabled a BUGS model to be used to infer any of the stochastic variables in the model given values for the data nodes and all other stochastic nodes.  This provides a clean way to perform analyses such as prior predictive inference and posterior predictive inference automatically through the graphical structure of the model.  BUGS samples using generalized Gibbs sampling, which does not scale well in dimension.
 
 PyMC [@salvatier2016probabilistic] and NumPyro [@phan2019composable] are Python packages that take a directed graphical modeling approach to specifying Bayesian models and are capable of generating JAX code as output.  There are similar packages in other languages, but they do not generate JAX code.  JAGS [@plummer2003jags] is a standalone language that reimplements and extends BUGS and is typically used through R, NIMBLE [@de2017programming] is coded in R, and Turing.jl [@ge2018turing] is coded in Julia.
 
-Like Stan, they efficiently scale in dimension by using gradient-based inference methods.  Like BUGS, they are able to exploit the graphical model structure directly to automate a number of functions that are painful to code in Stan and will largely remain painful to code in what we are proposing here.
+Like Stan, all of the modern PPLs efficiently scale in dimension by using gradient-based inference methods.  Like BUGS, they are able to exploit the graphical model structure directly to automate a number of functions that are painful to code in Stan and will largely remain painful to code in what we are proposing here, such as prior and posterior predictive checks and simulation-based calibration, and at least in the case of PyMC, general patterns of missing data.
 
-When models get more complicated in terms of novel constraints, densities, conditional structures, etc., both PyMC and NumPyro provide escape hatches to let you define transformations and log densities directly in the same way as Stan. This is great for generality, but it blocks the use of graphical model tooling. At this point, we believe it is simpler to just code the models directly in JAX rather than working around the graphical modeling paradigm of PyMC or NumPyro.
+When models get more complicated in terms of novel parameter constraints, densities, conditional structures, etc., both PyMC and NumPyro provide escape hatches to let you define transformations and log densities directly in the same way as Stan (following the tradition of the "ones-trick" in BUGS [@lunn2012bugs]. This is great for generality, but it defeats all the benefits of having a clean generative graphical model in the first place.  At this point, we believe it is more straightforward to code the models directly in JAX rather than working around the graphical modeling paradigm of PyMC or NumPyro.
 
-A second reason to prefer the approach we are presenting here is that it is much more direct.  By that, we mean that like Stan, the resulting code is implemented transparently in an imperative fashion rather than indirectly through the structure of the directed acyclic graph.  This also makes it straightforward to directly inject calls to JAX in the code.
+A second reason to prefer the approach we are presenting here is that it is much more direct.  By that, we mean that like Stan, the resulting code is implemented transparently in an imperative fashion rather than indirectly through the structure of the directed acyclic graph.
 
 ## Special function support
 
-Stan has an extensive library of special mathematical and statistical and reshaping functions.  Many of these are needed to differentiate cumulative distribution functions and to define custom densities.  Here's a brief overview of the coverage available in JAX compared to Stan.  Much of the special function support in JAX comes through its reiplementation of the SciPy ([`jax.scipy`](https://docs.jax.dev/en/latest/jax.scipy.html)) and NumPy ([`jax.numpy`](https://docs.jax.dev/en/latest/jax.numpy.html) libraries.
+Stan has an extensive library of special mathematical and statistical functions, as well as restructuring functions for arrays and matrices.  Many of these are needed to differentiate cumulative distribution functions and to define custom densities.  Here's a brief overview of the coverage available in JAX compared to Stan.  Much of the special function support in JAX comes through its reimplementation of the SciPy ([`jax.scipy`](https://docs.jax.dev/en/latest/jax.scipy.html)) and NumPy ([`jax.numpy`](https://docs.jax.dev/en/latest/jax.numpy.html) libraries.
 
 * *Matrix library*:  This is JAX's main focus and it far exceeds Stan's collection of familiar matrix functions and reshaping tools by punning NumPy (`jax.numpy`) and SciPy (`jax.scipy`).  There is even limited (and experimental) support for sparse matrices and solvers natively ([`jax.experimental.sparse`](https://docs.jax.dev/en/latest/jax.experimental.sparse.html)).
 
 * *Special functions*:  These are available all over the JAX modle structure, including in JAX's NumPy and SciPy modules.  The differentiable SciPy module is not complete compared to SciPy.  The deficit is more than made up by the special function library provided by TFP ([`jax.scipy.special`](https://docs.jax.dev/en/latest/jax.scipy.html#module-jax.scipy.special)) and maintained by Google.  For example, the Lambert W function available in Stan has not been ported from SciPy but is available through TFP.  The bottom line is that JAX provides a *better* selection of well supported special functions.
 
-* *Probability distributions*:  Stan implements dozens of probability distributions, including almost most (but not all) of the ones in common use for statistical models.  While the basics are available through JAX's NumPy and SciPy modules (often redundantly), the go-to library is TensorFlow Probability (TFP) ([`tfp.probability`](https://www.tensorflow.org/probability?hl=en)) for probability distributions (density functions, mass functions, and distribution functions).  In some cases, there are also quantile functions, which are poorly supported in Stan.  The bottom line is that the *JAX* ecoysystem provides a *etter* selection of well supported probability functions and random number generators.  There is even wider support beyond native JAX and TesnorFlow, including the probabilistic programming language NumPyro [@phan2019composable] and Google DeepMind's library Distrax [@deepmind2020jax].  Overall, there is *better* support for probability distributions in JAX than in Stan.
+* *Probability distributions*:  Stan implements dozens of probability distributions, including almost most (but not all) of the ones in common use for statistical models.  While the basics are available through JAX's NumPy and SciPy modules (often redundantly), the go-to library is TensorFlow Probability (TFP) ([`tfp.probability`](https://www.tensorflow.org/probability?hl=en)) for probability distributions (density functions, mass functions, and distribution functions).  In some cases, there are also quantile functions, which are poorly supported in Stan.  The bottom line is that the native Google-supported *JAX* ecosystem provides a *better* selection of well supported probability functions and random number generators.  There is even wider support beyond native JAX and TensorFlow, including the probabilistic programming language NumPyro [@phan2019composable] and Google DeepMind's library Distrax [@deepmind2020jax].
 
 * *Implicit Solvers*:  Applied statistics often requires equations to be solved and differentiated and Stan provides a fairly extensive library.
     * *ODE solvers*: There is no built-in support in JAX for ODE solvers, but the Diffrax library [@kidger2021on] is widely used and provides the same kind of adjoint and analytic methods as Stan that provide sensitivity analysis without automatically differentiating through the algorithm.  
-    * *Root finders*:  There is no built-in support in JAX for root finders, but the JAXOpt package [@blondel2021jaxopt] is maintained by Google and provides a range of solversincluding the Newton method used by Stan.
-    * *1D Integration*: There is no built-in or widely used external support for 1D integration in JAX at the moment.
+    * *Root finders*:  There is no built-in support in JAX for root finders, but the JAXOpt package [@blondel2021jaxopt] is maintained by Google and provides a range of solvers including the Newton method used by Stan.
+    * *1D Integration*: These functions are useful for defining cumulative distribution functions for novel densities. There is no built-in or widely used external support for 1D integration in JAX at the moment. 
     * *Hidden Markov models*:  TFP (through [`tfp.distributions.HiddenMarkovModel`](https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/HiddenMarkovModel?hl=en)) provides support for the forward algorithm to compute the distribution of outcomes given parameters (i.e., implement a likelihood function). This is enough to fit models out of the box, but it is not as efficient as the full forward-backward algorithm.
     * *Kalman filters*:  There is no direct support in Stan; there is experimental support in TFP (in [`tfp.experimental.parallel_filter.kalman_filter`](https://www.tensorflow.org/probability/api_docs/python/tfp/experimental/parallel_filter/kalman_filter?hl=en)).
 
-Although algorithms are implemented in JAX for things like ODE solving, that does not necessarily means they have been implemented in a way that scales out to multiple cores or makes efficient use of GPU parallelism.  On the other hand, overall, the special function and probability distribution and transform libraries of JAX are much more extensive than those supplied by Stan.
+Other than the omission of 1D integration and the backward pass of the forward-backward algorithm, the special function and probability distribution and transform libraries of JAX are *better* than those supplied by Stan.
 
 ## Constrained parameter support
 
-Stan provides built-in transforms for constrained parameters to provide densities with support over all of $\mathbb{R}^D$.  These are custom implementations with analytic Jacobian-adjoint product gradients in Stan plus efficient vectorized change-of-variables Jacobian-determinant calculations, so they are efficient.
+Stan provides built-in transforms for constrained parameters to provide densities with support over all of $\mathbb{R}^D$ and the appropriate change-of-variables adjustments.  These are custom implementations with analytic Jacobian-adjoint product gradients and vectorized application to containers.
 
-The Oryx transform library in TensorFlow is built on top of the TFP bijector library ([`tfp.bijectors`](https://www.tensorflow.org/probability/api_docs/python/tfp/bijectors)) [@dillon2017tensorflow], which can also be used directly.  TFP bijectors provide all of the transforms provided by Stan and many more including softplus, various cdfs and hyperbolic tangent as replacements for inverse-logit, more multivariate transforms such as cumulative sums and Householder factorizations, as well as trained transforms like RealNVP normalizing flows.  Oryx additionally allows transforms to be written down directly in such a way that Oryx can automatically calculate inverse transforms and Jacobian determinants of inverse transforms.
+The Oryx transform library in TensorFlow is built on top of the TFP bijector library ([`tfp.bijectors`](https://www.tensorflow.org/probability/api_docs/python/tfp/bijectors)) [@dillon2017tensorflow], which can also be used directly.  TFP bijectors provide all of the transforms provided by Stan and many more including softplus, various cdfs and hyperbolic tangent as replacements for inverse-logit, more multivariate transforms such as cumulative sums and Householder factorizations, as well as trained transforms like RealNVP normalizing flows [@dinh2016density].  Oryx additionally allows transforms to be written down directly in such a way that Oryx can automatically calculate inverse transforms and Jacobian determinants of inverse transforms.
 
 ## Modularity
 
-SlicStan [@gorinova2019slic] reconceived Stan without blocks---the sorting into data, parameters, and generated quantities was carried out by data flow analysis.  The primary motivation was to make it possible to modularly express concepts like a hierarchical prior.  With Stan itself, this is impossible unless the modularity is in the form of a simple function.  With SlicStan, the parameters, priors, etc., could all be constructed modularly and reused.  By allowing models to be expressed direclty in Python code, NumPyro and PyMC already support modular code reuse.  Although it is rare to see this feature used in example code, it is widely used in production.
+SlicStan [@gorinova2019slic] reconceived Stan without blocks---the sorting into data, parameters, and generated quantities was carried out by data flow analysis.  The primary motivation was to make it possible to modularly express concepts like a hierarchical prior.  With Stan itself, this is impossible unless the modularity is in the form of a simple function.  With SlicStan, the parameters, priors, etc., could all be constructed modularly and reused.  By allowing models to be expressed directly in Python code, NumPyro and PyMC already support modular code reuse.  Although it is rare to see this feature used in example code, it is widely used in production.
 
-By coding models directly in Python, we gain the same benefits of NumPyro and PyMC.  We can just write programs to construct and combine objects of interest for us, such as constrained variables and log density contributions.
+By coding models directly in Python, we gain the same benefits of NumPyro and PyMC.  We can write general programs returning arbitrary components of a probabilistic program and combine them at will.  We will provide examples below.
 
 
 # A linear regression case study
@@ -111,13 +117,13 @@ $$
 
 To simplify inference algorithms, Stan and other PPLs expose an unnormalized log posterior density over unconstrained parameters.  The programs themselves define densities over variables with constraints defined either explicitly (Stan) or implicitly (most other PPLs).  The program's constrained log density is automatically transformed to an unconstrained density with the appropriate change-of-variales adjustment calculated automatically.
 
-Mathematially, given a constrained random variable $X \in C \subseteq \mathbb{R}^D$, with a density $p_X(x)$, and a smooth bijection $f:C \rightarrow \mathbb{R}^N$, we can derive the density of $Y = f(X)$ as $p_Y(y) = p_X(f^{-1}(y)) \cdot \left| \nabla f^{-1}(y) \right|$, where $|\cdot|$ denotes the absolute determinant.  In the univariate case, $\nabla f^{-1}(y)$ reduces to the derivative of the inverse transform at $y$, $(f^{-1})'(y)$.
+Mathematically, given a constrained random variable $X \in C \subseteq \mathbb{R}^D$, with a density $p_X(x)$, and a smooth bijection $f:C \rightarrow \mathbb{R}^N$, we can derive the density of $Y = f(X)$ as $p_Y(y) = p_X(f^{-1}(y)) \cdot \left| \nabla f^{-1}(y) \right|$, where $|\cdot|$ denotes the absolute determinant.  In the univariate case, $\nabla f^{-1}(y)$ reduces to the derivative of the inverse transform at $y$, $(f^{-1})'(y)$.
 
-If there is a sequence of variables being transformed one at a time, the overall Jacobian will be block diagonal, with a Jacobian equal to the product of the Jacobians of the blocks.  This makes it particularly simple to work on the unconstrained scale---we just map unconstrained paramters back to the constrained space using the inverse transform and add the log absolute determinant of its Jacobian.
+If there is a sequence of variables being transformed one at a time, the overall Jacobian will be block diagonal, with a Jacobian equal to the product of the Jacobians of the blocks.  This makes it particularly simple to work on the unconstrained scale---we just map unconstrained parameters back to the constrained space using the inverse transform and add the log absolute determinant of its Jacobian.
 
 Stan allows variables to be declared that are lower bounded (for scales), upper bounded, range bounded (for probabilities), affine transforms (for non-centered parameterizations), ordered vectors (for cutpoints in ordinal regressions or identifying mixtures), unit vectors (for points on a hypersphere), simplexes (for categorical probability distributions), sum-to-zero vectors (for identifying varying effects), positive-definite symmetric matrices and their Cholesky factors (e.g., for covariance or precision matrices), and for unit-diagonal positive-definite matrices and their Cholesky factors (e.g., for correlation matrices). The Oryx package, which is part of TensorFlow Probability, provides an even wider range of useful transforms than Stan (e.g., softplus, alternative sigmoid cdfs, tanh, autoregressions, and flows, and many many more).
 
-In our simple regression example, the only constrained parameter is $\sigma > 0$.  We transform positive-constrained parameters using the log transform, e.g., $\sigma^\textrm{unc} = \log \sigma$. The inverse transform is the exponential. Applying the change-of-variables formula and using the fact that $\left| \nabla \exp(u) \right| = \exp(u)$, the correspodning unconstrained density is
+In our simple regression example, the only constrained parameter is $\sigma > 0$.  We transform positive-constrained parameters using the log transform, e.g., $\sigma^\textrm{unc} = \log \sigma$. The inverse transform is the exponential. Applying the change-of-variables formula and using the fact that $\left| \nabla \exp(u) \right| = \exp(u)$, the corresponding unconstrained density is
 $$
 p^\textrm{unc}(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
 = p(\alpha, \beta, \exp(\sigma^\textrm{unc}) \mid x, y) \cdot \exp(\sigma^\textrm{unc}).
@@ -253,7 +259,7 @@ def linear_regression(x, y, x_new):
 
     def generate(rng, a, b, s):
         y_new = normal_rng(rng, a + x_new @ b, s)
-        return { 'y_new': y }
+        return { 'y_new': y_new }
         
     return model(parameters, log_density, generate)
 ```
@@ -265,205 +271,7 @@ can compute log densities and their gradients, as well as transform parameters f
 In Python, the `arviz` package [@kumar2019arviz] provides extensive posterior analysis including means, standard deviations, quantiles, covariances, rank-normalized $\widehat{R}$-statistics for convergence monitoring, effective sample sizes, and estimator standard errors [@vehtari2021rank], as well as efficient approximate leave-one-out cross-validation for model comparison [@vehtari2017practical].
 
 
-
-
 # References {.unnumbered}
 
 ::: {#refs}
 :::
-
-
-# OLD STUFF PAST HERE
-
-
-## About this document
-
-This document, accompanied by the [customized GitHub repository](https://github.com/computorg/template-computo-python/), provides a template for writing contributions to **Computo** [@computo].
-
-::: {.callout-tip}
-## Note
-This document provides only the key formatting principles. For a detailed, step-by-step guide on preparing your article and submitting it to Computo, please consult the [guidelines for authors](https://computo-journal.org/site/guidelines-authors.html).
-:::
-
-## Quarto
-
-[Quarto](https://quarto.org/) is a versatile formatting system for authoring documents integrating markdown, LaTeX and code blocks interpreted either via Jupyter or Knitr (thus supporting Python, R and Julia). It relies on the [Pandoc](https://pandoc.org/MANUAL.html) document converter.
-
-## Requirements
-
-You need [quarto](https://quarto.org/) installed on your system and the [Computo extension](https://github.com/computorg/computo-quarto-extension) to prepare your document. For the latter, once quarto is installed,  run the following to install the extension in the current directory (it creates a `_extension` directory which is ignored by git thanks to `.gitignore` by default):
-
-```.bash
-quarto add computorg/computo-quarto-extension
-```
-
-[`Python`](https://www.python.org/) and [`Jupyter`](https://jupyter.org/install) must be installed on your computer.
-
-# Formatting
-
-This section covers basic formatting guidelines for quarto documents.
-
-To render a document, run `quarto render`. By default, both PDF and HTML documents are generated:
-
-```.bash
-quarto render # renders both HTML and PDF
-```
-
-::: {.callout-tip}
-## Note
-
-To check the syntax of the formatting below, you can use the `</> source` button at the top right of this document.
-:::
-
-## Basic markdown formatting
-
-**Bold text** or _italic_
-
-- This is a list
-- With more elements
-- It isn't numbered.
-
-But we can also do a numbered list
-
-1. This is my first item
-2. This is my second item
-3. This is my third item
-
-## Mathematics
-
-### Mathematical formulae
-
-[LaTeX](https://www.latex-project.org/) code is natively supported[^lualatex], which makes it possible to use mathematical formulae:
-
-[^lualatex]: We use [lualatex](https://lualatex.org/) for this purpose.
-
-$$
-f(x_1, \dots, x_n; \mu, \sigma^2) =
-\frac{1}{\sigma \sqrt{2\pi}} \exp{\left(- \frac{1}{2\sigma^2}\sum_{i=1}^n(x_i - \mu)^2\right)}
-$$
-
-It is also posible to cross-reference an equation, see @eq-mylabel:
-
-$$
-\begin{aligned}
-D_{x_N} & = \frac12
-\left[\begin{array}{cc}
-x_L^\top & x_N^\top \end{array}\right] \,
-\left[\begin{array}{cc}  L_L & B \\ B^\top & L_N \end{array}\right] \,
-\left[\begin{array}{c}
-x_L \\ x_N \end{array}\right] \\
-& = \frac12 (x_L^\top L_L x_L + 2 x_N^\top B^\top x_L + x_N^\top L_N x_N),
-\end{aligned}
-$$ {#eq-mylabel}
-
-### Theorems and other amsthem-like environments
-
-Quarto includes a nice support for theorems, with predefined prefix labels for theorems, lemmas, proposition, etc. see [this page](https://quarto.org/docs/authoring/cross-references.html#theorems-and-proofs). Here is a simple example:
-
-::: {#thm-slln}
-## Strong law of large numbers
-
-The sample average converges almost surely to the expected value:
-
-$$\overline{X}_n\ \xrightarrow{\text{a.s.}}\ \mu \qquad\textrm{when}\ n \to \infty.$$
-:::
-
-See @thm-slln.
-
-## Python Code
-
-Quarto uses either Jupyter or knitr to render code chunks. This can be triggered in the yaml header. In this tutorial, we use `Jupyter`  (`Python` and `Jupyter` must be installed on your computer).
-
-``` yaml
----
-title: "My Document"
-author "Jane Doe"
-jupyter: python3
----
-```
-
-`python` code chunks may be embedded as follows:
-
-```{python python-code}
-import numpy as np
-x = np.random.normal(0, 1, 10)
-x
-```
-
-## Figures
-
-Plots can be generated as follows:
-
-```{python stem-plot}
-#| label: fig-stem-plot
-#| fig-cap: "A basic Stem plot"
-
-import matplotlib.pyplot as plt
-import numpy as np
-
-x = np.linspace(0.1, 2 * np.pi, 41)
-y = np.exp(np.sin(x))
-
-plt.stem(x, y)
-plt.show()
-```
-
-It is also possible to create figures from static images:
-
-:::{#fig-logo}
-
-![](https://raw.githubusercontent.com/computorg/comm/main/design/logo_text_vertical.png){height=200}
-
-Computo logo (label)
-:::
-
-
-## Tables
-
-Tables (with label: `@tbl-mylabel` renders @tbl-mylabel) can be generated with markdown as follows
-
-| Tables   |      Are      |  Cool |
-|----------|:-------------:|------:|
-| col 1 is |  left-aligned | $1600 |
-| col 2 is |    centered   |   $12 |
-| col 3 is | right-aligned |    $1 |
-: my table caption {#tbl-mylabel}
-
-## Handling references {#sec-references}
-
-### Bibliographic references
-
-References are displayed as footnotes using
-[BibTeX](http://www.bibtex.org/), e.g. `[@computo]` will be displayed
-as [@computo], where `computo` is the bibtex key for this specific
-entry. The bibliographic information is automatically retrieved from
-the `.bib` file specified in the header of this document (here:
-`references.bib`).
-
-### Other cross-references
-
-As already (partially) seen, Quarto includes a mechanism similar to the
-bibliographic references for sections, equations, theorems, figures,
-lists, etc. Have a look at [this
-page](https://quarto.org/docs/authoring/cross-references.html).
-
-## Advanced formatting
-
-Advanced formatting features are possible and documented (including interactive plots, pseudo-code, (Tikz) diagrams, Lua filters, mixing R + Python in the same document), but are beyond the scope of this simple introduction. We point several entries in this direction.
-
-::: {.callout-warning}
-## More information
-
-- [The Quarto web site](https://quarto.org) for comprehensive documentation, including:
-  + [Tutorial](https://quarto.org/docs/get-started/)
-  + [User guide](https://quarto.org/docs/guide/)
-  + [Options reference](https://quarto.org/docs/reference/)
-
-- [The template distributed with the Computo Quarto extension](https://computo.sfds.asso.fr/computo-quarto-extension/), which uses such advanced features.
-
-- [Our mock version of the t-SNE paper](https://computo.sfds.asso.fr/published-paper-tsne/), a full and advanced example using Python and the Jupyter kernel.
-
-- [The previously published papers in Computo](https://computo.sfds.asso.fr/publications/) can be used as references.
-
-:::
-
