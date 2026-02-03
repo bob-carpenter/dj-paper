@@ -59,4 +59,4 @@ license: CC-BY-4.0
 format:
   computo-html: default
   computo-pdf: default
-jupyter: python3
+jupyter: template-python

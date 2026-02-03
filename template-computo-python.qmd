@@ -268,15 +268,11 @@ def simulate_regression(n=128, p=2, n_new=16, seed=145777):
     mu = alpha + x @ beta
     y = rng.normal(mu, sigma)
     x_new = simulate_covariates(n_new)
-    parameters = {
-        "alpha": alpha,
-	"beta": beta,
-	"sigma": sigma
-    }
+    parameters = { "alpha": alpha, "beta": beta, "sigma": sigma }
+
     data = {
-        "N": n, "P": p, "N_new": n_new,
-        "x": x.tolist(), "y": y.tolist(),
-	"x_new": x_new.tolist(),
+        "N": n, "P": p, "N_new": n_new, "x": x.tolist(),
+	"y": y.tolist(), "x_new": x_new.tolist(),
     }
     return parameters, data
 

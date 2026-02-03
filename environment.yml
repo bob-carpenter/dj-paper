@@ -8,11 +8,11 @@ dependencies:
   - scipy
   - pandas
   - matplotlib
-  - plotly
   - jupyter
   - ipykernel
   - cmake
   - make
+  - plotly
   - compilers        # conda-forge meta-package: provides gcc/g++ on linux
   - pip:
       - arviz

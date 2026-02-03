@@ -1,6 +1,6 @@
 # JAX à la Stan
 Brian Ward, Mitzi Morris, Andrew Gelman, Bob Carpenter
-2026-01-25
+2026-02-02
 
 **
 
