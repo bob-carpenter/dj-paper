@@ -1,8 +1,11 @@
 ---
 format: gfm
+title: ""
+author: []
+date: ""
 ---
 
-# {{< meta title >}}
+{{< meta title >}}
 
 {{< meta subtitle >}}  
 
@@ -13,8 +16,8 @@ format: gfm
 
 ### Authors
 
-{{< meta by-author >}}
-- [{{ name.literal }}]({{ url }})
+{{< meta author >}}
+- [{{ name }}]({{ url }})
   {{< meta affiliations >}}
   - {{ name }}
   {{< /meta >}}
