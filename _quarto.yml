@@ -31,9 +31,6 @@ author:
       - name: Columbia Univesity
         department: Department of Statistics
         url: https://stat.columbia.edu
-      - name: Flatiron Institute
-        department: Center for Computational Mathematics
-        url: https://www.simonsfoundation.org/flatiron/center-for-computational-mathematics/
   - name: Bob Carpenter
     corresponding: true
     email: bcarpenter@flatironinstitute.org
