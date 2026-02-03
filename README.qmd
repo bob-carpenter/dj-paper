@@ -2,19 +2,24 @@
 format: gfm
 ---
 
-_{{< meta description >}}_
+# {{< meta title >}}
+
+{{< meta subtitle >}}  
+
+{{< meta date >}}
 
 [![build and publish](https://github.com/{{< meta github-user >}}/{{< meta repo >}}/actions/workflows/build.yml/badge.svg)](https://github.com/{{< meta github-user >}}/{{< meta repo >}}/actions/workflows/build.yml)
 [![Creative Commons License](https://i.creativecommons.org/l/by/4.0/80x15.png)](http://creativecommons.org/licenses/by/4.0/)
 
 ### Authors
 
-- [{{< meta by-author.1.name.literal >}}]({{< meta by-author.1.url >}}) ({{< meta by-affiliation.1.name >}})
-- [{{< meta by-author.2.name.literal >}}]({{< meta by-author.2.url >}}) ({{< meta by-affiliation.2.name >}})
-- [{{< meta by-author.3.name.literal >}}]({{< meta by-author.3.url >}}) ({{< meta by-affiliation.3.name >}})
-- [{{< meta by-author.4.name.literal >}}]({{< meta by-author.4.url >}}) ({{< meta by-affiliation.4.name >}})
+{{< meta by-author >}}
+- [{{ name.literal }}]({{ url }})
+  {{< meta affiliations >}}
+  - {{ name }}
+  {{< /meta >}}
+{{< /meta >}}
 
 ### Abstract
 
 {{< meta abstract >}}
-
