@@ -2,15 +2,17 @@
 
 ## Bayesian workflow
 
-@gelman2013bda begin their foundational textbook by breaking down Bayesian data analysis into three steps.
+@gelman2013bda begin their foundational textbook by factoring Bayesian data analysis into three steps.
 
 1. Design a joint probability distribution for observable data and unobservable parameters.
 2. Perform inference to generate a posterior sample over parameters conditioned on data.
-3.  Evaluate the model fit and what it tells us about our quantities of interest.
+3. Evaluate the model fit and what it tells us about our quantities of interest.
 
-The authors further suggest that if the evaluation in (3) is not sufficient, then one should go back to (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on evaluating multiple models simultaneously and transparently reporting their exploration and comparison.
+The authors further suggest that if the evaluation in step (3) is not sufficient, then one should go back to step (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on evaluating multiple models simultaneously and transparently reporting their exploration and comparison.
 
-A probabilistic programming language (PPL) primarily provides support for task (1), and is often integrated into an environment that provides support for task (2), and some rudimentary tools for task (3).  In this paper, we are going to focus on the job the PPL is doing toward (1), while providing guidance for steps (2) and (3).  The goal is a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
+A probabilistic programming language (PPL) primarily provides support for coding statistical models defined in step (1) in a way that they can be used for inference in step (2).  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods.  PPLs are also typically coupled with posterior analysis and model comparison tools for task (3).
+
+In this paper, we are going to focus on performing the same function as a PPL without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
 
 For step (2), we recommend the Python package Blackjax [@cabezas2024blackjax]. Blackjax includes implementations of Stan's primary inference methods, NUTS, ADVI, and Pathfinder.  It is being actively maintained and extended, and already includes several other useful algorithms, including isokinetic (aka microcanonical) sampling [@robnik2025metropolis], sequential Monte Carlo [@doucet2001introduction], elliptical slice sampling [@murray2010elliptical], generalized HMC [@horowitz1991generalized], and even random-walk Metropolis [@hastings1970monte].
 
@@ -55,14 +57,24 @@ Stan has an extensive library of special mathematical and statistical functions,
 
 * *Probability distributions*:  Stan implements dozens of probability distributions, including almost most (but not all) of the ones in common use for statistical models.  While the basics are available through JAX's NumPy and SciPy modules (often redundantly), the go-to library is TensorFlow Probability (TFP) ([`tfp.probability`](https://www.tensorflow.org/probability?hl=en)) for probability distributions (density functions, mass functions, and distribution functions).  In some cases, there are also quantile functions, which are poorly supported in Stan.  The bottom line is that the native Google-supported *JAX* ecosystem provides a *better* selection of well supported probability functions and random number generators.  There is even wider support beyond native JAX and TensorFlow, including the probabilistic programming language NumPyro [@phan2019composable] and Google DeepMind's library Distrax [@deepmind2020jax].
 
+* *Complex-valued functions*: JAX and Stan both have core library support for complex-valued functions built-in, including fast Fourier transforms amd complex matrix operations.
+
+* *Neural networks*: JAX is integrated tightly with a range of neural network constructions through the Flax package [@heek2020github], which is maintained by a team at Google DeepMind, but is not an official Google product like TensorFlow or JAX.  It supports everything from simple multilayer perceptrons and convolutional neural networks to autoencoders and multi-head attention.
+    * *Simulation-based inference (SBI)*: There is as of yet, no mature and commonly used SBI package in JAX.
+    
 * *Implicit Solvers*:  Applied statistics often requires equations to be solved and differentiated and Stan provides a fairly extensive library.
-    * *ODE solvers*: There is no built-in support in JAX for ODE solvers, but the Diffrax library [@kidger2021on] is widely used and provides the same kind of adjoint and analytic methods as Stan that provide sensitivity analysis without automatically differentiating through the algorithm.  
+    * *Ordinary differential equation (ODE) solvers*: There is no built-in support in JAX for ODE solvers, but the Diffrax package [@kidger2021on] is widely used and provides the same kind of adjoint and analytic methods as Stan that provide sensitivity analysis without automatically differentiating through the algorithm.  
     * *Root finders*:  There is no built-in support in JAX for root finders, but the JAXOpt package [@blondel2021jaxopt] is maintained by Google and provides a range of solvers including the Newton method used by Stan.
     * *1D Integration*: These functions are useful for defining cumulative distribution functions for novel densities. There is no built-in or widely used external support for 1D integration in JAX at the moment. 
     * *Hidden Markov models*:  TFP (through [`tfp.distributions.HiddenMarkovModel`](https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/HiddenMarkovModel?hl=en)) provides support for the forward algorithm to compute the distribution of outcomes given parameters (i.e., implement a likelihood function). This is enough to fit models out of the box, but it is not as efficient as the full forward-backward algorithm.
     * *Kalman filters*:  There is no direct support in Stan; there is experimental support in TFP (in [`tfp.experimental.parallel_filter.kalman_filter`](https://www.tensorflow.org/probability/api_docs/python/tfp/experimental/parallel_filter/kalman_filter?hl=en)).
+    * *Partial differential equation (PDE) solvers*:   Stan has no support for partial differential equations.  The JAX-CFD package [@kochkov2021cfd] from Google provides tools was developed for computational fluid dynamics includes a number of PDE solvers, including finite volume/difference methods, pseudospectral methods, and machine-learning methods.  It supports Navier-Stokes, advection-diffusion, period and wall boundary conditions and ported to GPU and TPU processors with gradients.
+    * *Stochastic differential equation (SDE) solvers*:  Stan has no support for stochastic differential equations. The Diffrax package [@kidger2021on], in addition to providing stiff ODE solvers, also supports traditional SDE and SPDE solvers (Eueler-Maruyama, Milstein, Stratonovich/It\^o) through spatial discretization.
 
-Other than the omission of 1D integration and the backward pass of the forward-backward algorithm, the special function and probability distribution and transform libraries of JAX are *better* than those supplied by Stan.
+
+
+Other than the omission of 1D integration and the backward pass of the forward-backward algorithm, the special function and probability distribution and transform libraries of JAX are *better* than those supplied by Stan.  When it comes to differential equation solving and integratrion with neural networks as both solvers and as components of statistical models, JAX is way ahead of Stan.  When it comes to even more complicated functions like PDE and SDE solvers and neural networks, Stan isn't even in the game.  The JAX-based PPL NumPyro can also make use of these JAX packages in many cases, especially if users are willing to break the graphical model abstraction.
+
 
 ## Constrained parameter support
 
@@ -195,6 +207,17 @@ generated quantities {
 }
 ```
 
+To ease the transition to JAX, note that the distribution statements in the model block are just syntactic sugar for incrementing the log target density [@carpenter2017stan].  The model block could have been coded as follows to generate the same C++ code.
+
+```stan
+  target += normal_lupdf(alpha | 0, 5);
+  target += normal_lupdf(beta | 0, 2.5);
+  target += lognormal_lupdf(sigma | 0, 1);
+  target += normal_lupdf(alpha + beta * x, sigma);
+```
+
+Here, the `_lupdf` indicates a log (`l`), unnormalized (`u`), probability density function (`pdf`).  For probability mass functions, replace `pdf` with `pmf`; to preserve normalizing constants, drop the `u`.
+
 ## Compilation to C++
 
 A Stan model compiles to a C++ class that reads the data in as part of its constructor [@stan2025ref].  The data variables are specified in the `data` block in the Stan program.  Here, we have the sizes, the covariate matrices (`x` plus `x_new` for posterior prediction), and the outcomes (`y`).  The constructed C++ class is immutable and provides several methods, the most central of which is an unconstrained (in the sense of having support over all of $\mathbb{R}^D$) log density function that is templated in order to support automatic differentiation [@carpenter2015ad].  In math, the constraining transform maps $(\alpha, \beta, \sigma^\text{u})$ to $(\alpha, \beta, \exp(\sigma^\text{u}))$.  The transforms are independent and the first two are the identity, so the Jacobian determinant works out to $\exp(\sigma^\text{u})$.  Thus the additive change-of-variables adjustment on the log scale is just $\log \exp(\sigma^\text{u}) = \sigma^\text{u}$.
@@ -217,19 +240,76 @@ To support the changes of variables for reporting constrained output, the compil
 
 The final component of a compiled Stan model is a function to perform predictive inference as defined by the generated quantities block (this can also be done post-hoc with a new program and generated quantities block).  In particular, the model compiles a generated quantities function that takes a random number generator and produces the output defined in the generated quantities block purely by forward sampling without the need for any automatic differentiation.
 
-### Distribution statements are syntactic sugar
+## Running the Stan program
 
-To ease the transition to JAX, note that the distribution statements in the model block are just syntactic sugar for incrementing the log target density [@carpenter2017stan].  The model block could have been coded as follows to generate the same C++ code.
+In order to fit a model, we need data.
 
-```stan
-  target += normal_lupdf(alpha | 0, 5);
-  target += normal_lupdf(beta | 0, 2.5);
-  target += lognormal_lupdf(sigma | 0, 1);
-  target += normal_lupdf(alpha + beta * x, sigma);
+### Simulating data
+
+The sizes and covariates $x$ cannot be simulated from the model as they are not modeled.
+Let's simulate some data.
+
+```{python python-code}
+#| code-fold: false
+import json
+import numpy as np
+
+def simulate_regression(n=128, p=2, n_new=16, seed=145777):
+    def simulate_covariates(n):
+      x = rng.normal(size=(n, p))
+      x[:, 0] = x[:, 0]**2
+      return x
+
+    rng = np.random.default_rng(seed)
+    alpha = rng.normal(0.0, 5.0)
+    beta = rng.normal(0.0, 2.5, size=p)
+    sigma = rng.exponential(1.0 / 0.5)
+    x = simulate_covariates(n)
+    mu = alpha + x @ beta
+    y = rng.normal(mu, sigma)
+    x_new = simulate_covariates(n_new)
+    parameters = {
+        "alpha": alpha,
+	"beta": beta,
+	"sigma": sigma
+    }
+    data = {
+        "N": n, "P": p, "N_new": n_new,
+        "x": x.tolist(), "y": y.tolist(),
+	"x_new": x_new.tolist(),
+    }
+    return parameters, data
+
+params, data = simulate_regression()
 ```
 
-Here, the `_lupdf` indicates a log (`l`), unnormalized (`u`), probability density function (`pdf`).  For probability mass functions, replace `pdf` with `pmf`; to preserve normalizing constants, drop the `u`.
+The simulated parameter values are as follows.
 
+```{python python-code}
+#| code-fold: true
+print(f"alpha:{params['alpha']:6.2f};   beta[0]:{params['beta'][0]:6.2f};   beta[1]:{params['beta'][1]:6.2f};   sigma:{params['sigma']:6.2f}")
+```
+
+Now that we have data, we can plot it.
+
+```{python python-code}
+#| code-fold: true
+#| fig-cap: "Simulated data from the quadratic–linear regression model. The horizontal axes show the covariates `x` and the vertical axis the value `y`."
+
+import plotly.express as px
+
+def plot_3d(data):
+    x = np.asarray(data["x"])
+    y = np.asarray(data["y"])
+    fig = px.scatter_3d(
+        x=x[:, 0], y=x[:, 1], z=y,
+        labels={"x": "x[1]", "y": "x[2]", "z": "y"},
+    )
+    return fig
+
+sim_fig = plot_3d(data)
+sim_fig
+```
 
 ## Linear regression in JAX with `densejax`
 
