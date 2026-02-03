@@ -2,6 +2,21 @@ name: template-python
 channels:
   - conda-forge
 dependencies:
-  - jupyter
-  - matplotlib
+  - python=3.11
+  - pip
   - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - plotly
+  - jupyter
+  - ipykernel
+  - cmake
+  - make
+  - compilers        # conda-forge meta-package: provides gcc/g++ on linux
+  - pip:
+      - arviz
+      - blackjax
+      - cmdstanpy
+      - bridgestan
+      - "jax[cpu]"    # CPU build; for GPU/TPU this differs
