@@ -96,13 +96,75 @@ SlicStan [@gorinova2019slic] reconceived Stan without blocks---the sorting into 
 By coding models directly in Python, we gain the same benefits of NumPyro and PyMC.  We can write general programs returning arbitrary components of a probabilistic program and combine them at will.  We will provide examples below.
 
 
-# A linear regression case study
+# The Bayesian inference problem
+
+In this section, we will lay out the precise definition of the Bayesian inference problem we are trying to compute, show how it can be computed asymptotically exactly using Monte Carlo methods, and apply some simple calculus to transform parameterizations to be unconstrained (i.e., have support over all of $\mathbb{R}^D$).  
+
+## Bayesian models and inference
+
+A Bayesian model is nothing more than a joint distribution over parameters $\theta$ and data $y$.  By the chain rule, the posterior distribution of the parameters given the data is given by $p(\theta \mid y) \propto p(\theta, y)$.  Often our density is factored into a prior times a likelihood, $p(\theta \mid y) = p(\theta) \cdot p(y \mid \theta)$, but nothing in Stan or what we are proposing for JAX presupposes a clean factorization.  In fact, our methods can be used to sample from any old density---it doesn't have to arise as a Bayesian posterior.
+
+For Bayesian inference, we are typically interested in expectations with respect to the posterior.  For instance, the parameter estimate that minimizes expected square error (assuming the model is correct) is the posterior mean,
+$$
+\widehat{\theta} = \mathbb{E}[\theta \mid y].
+$$
+The posterior covariance is
+$$
+\textrm{var}[\theta] = \mathbb{E}[(\theta - \widehat{\theta}) \cdot (\theta - \widehat{\theta})^\top].
+$$
+If we have an event $A \subseteq \mathbb{R}^D$, then its probability is given by the expectation of its indicator function,
+$$
+\Pr[\theta \in A] = \mathbb{E}[\mathbb{1}_A(\theta \in A) \mid y].
+$$
+If we want to evaluate posterior predictive densities for new data $\tilde{y}$, then
+$$
+p(\tilde{y} \mid y) = \mathbb{E}[p(\tilde{y} \mid \theta) \mid y].
+$$
+
+Conditional expectation notation is just shorthand for a high-dimensional integral in our underlying probability space,
+$$
+\mathbb{E}[f(\theta) \mid y]
+= \int_{\mathbb{R}^D} f(\theta) \cdot p(\theta \mid y) \, \textrm{d}\theta.
+$$
+We can reduce the high-dimensional integration problem to one of sampling from the posterior,
+$$
+\theta^{(m)} \sim p(\theta \mid y).
+$$
+Given modest assumptions to ensure ergodicity [@roberts2004mcmc], the Monte Carlo estimate converges to the true value,
+$$
+\mathbb{E}[f(\theta) \mid y]
+= \lim_{M \rightarrow \infty} \
+  \frac{1}{M} \sum_{m < M} f(\theta^{(m)}).
+$$
+In practice, we use a finite approximation for a fixed $M$,
+$$
+\mathbb{E}[f(\theta) \mid y]
+\approx  \frac{1}{M} \sum_{m < M} f(\theta^{(m)}).
+$$
+If the Markov chain is well behaved (e.g., it's geometrically ergodic), then the Markov chain central limit theorem will hold, and the Monte Carlo estimate will converge to the true value at a rate of $\mathcal{O}(1 / \sqrt{M})$ [@roberts2004mcmc].
+
+## Unconstrained parameterizations
+
+It is much easier to define a sampling algorithm for situations where the posterior has support over all of $\mathbb{R}^D$, i.e., for all $\theta \in \mathbb{R}^D$, $p(\theta \mid y) > 0$.  Stan and other PPLs transform any unconstrained parameters to be unconstrained.  Then in practice, the unconstrained parameters are inverse transformed to satisfy their constraints.  This requires an adjustment for the change of variables, which happens implicitly in PPLs.  Stan requires all parameter constraints to be declared; the graphical modeling sublanguage of PyMC and NumPyro infer these constraints from the distributions in which variables participate (e.g., if a variable is given a Wishart distribution, it must be a symmetric and positive definite matrix).
+
+Mathematically, given a constrained random variable $\Theta \in C \subseteq \mathbb{R}^D$, with a density $p_\Theta(\theta)$, and a smooth bijection $f:C \rightarrow \mathbb{R}^N$, we can derive the density of $\Phi = f(\Theta)$ as
+$$
+p_\Phi(\phi) = p_\Theta(f^{-1}(\phi)) \cdot \left| \nabla f^{-1}(\phi) \right|,
+$$
+where $|\cdot|$ denotes the absolute determinant operator and $f^{-1}$ is the inverse of $f$.  In the univariate case, $\nabla f^{-1}(y)$ reduces to the derivative of the inverse transform at $y$ (i.e., $\nabla f^{-1} = (f^{-1})'$).
+
+If there is a sequence of variables being transformed one at a time, the overall Jacobian will be block diagonal, with an absolute Jacobian determinant equal to the product of the absolute Jacobian determinants of the blocks.  Unconstrained parameters are transformed by the identity, which has a unit Jacobian determinant.  This makes it particularly simple to work on the unconstrained scale---we just map unconstrained parameters back to the constrained space using the inverse transforms and add the log absolute determinants of their Jacobians.  For maximum likelihood estimation, the Jacobians can be dropped from the target density with a flag.
+
+Stan supplies constraints for variables that are lower bounded (for scales), upper bounded (for log probabilities), range bounded (for probabilities), affine transforms (for non-centered parameterizations), ordered vectors (for cutpoints in ordinal regressions or identifying mixtures), unit vectors (for points on a hypersphere), simplexes (for categorical probability distributions), sum-to-zero vectors (for identifying varying effects), positive-definite symmetric matrices and their Cholesky factors (for covariance or precision matrices), and for unit-diagonal positive-definite matrices and their Cholesky factors (for correlation matrices). The Oryx package, which is native to JAX and built on top of the TensorFlow Probability bijectors package [@dillon2017tensorflow], provides an even wider range of useful transforms than Stan (e.g., softplus, alternative sigmoid cdfs, tanh, autoregressions, and flows, and many many more).
+
+
+# A worked example
 
 To ground the discussion, let's consider the concrete example of coding a linear regression and using it to predict new observations.
 
 ## A multivariate linear regression model
 
-We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are unit scale so that we can assume a weakly informative prior independently over our paraemters,
+We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are unit scale so that we can assume a weakly informative prior independently over our paraemters,
 $$
 \alpha \sim \textrm{normal}(0, 5)
 \qquad
@@ -126,23 +188,13 @@ p(y, \alpha, \beta, \sigma \mid x)
   \cdot \left( \prod_{n=1}^N \textrm{normal}(y_n \mid \alpha + x_n \cdot \beta, \sigma) \right).
 \end{array}
 $$
-Bayes's rule simply tells us that we can use the joint density as an unnormalized posterior,
+Bayes's rule allows us to use the joint density as an unnormalized posterior,
 $$
 p(\alpha, \beta, \sigma \mid y, x)
 \propto p(y, \alpha, \beta, \sigma \mid x).
 $$
 
-## The unconstrained posterior density
-
-To simplify inference algorithms, Stan and other PPLs expose an unnormalized log posterior density over unconstrained parameters.  The programs themselves define densities over variables with constraints defined either explicitly (Stan) or implicitly (most other PPLs).  The program's constrained log density is automatically transformed to an unconstrained density with the appropriate change-of-variales adjustment calculated automatically.
-
-Mathematically, given a constrained random variable $X \in C \subseteq \mathbb{R}^D$, with a density $p_X(x)$, and a smooth bijection $f:C \rightarrow \mathbb{R}^N$, we can derive the density of $Y = f(X)$ as $p_Y(y) = p_X(f^{-1}(y)) \cdot \left| \nabla f^{-1}(y) \right|$, where $|\cdot|$ denotes the absolute determinant.  In the univariate case, $\nabla f^{-1}(y)$ reduces to the derivative of the inverse transform at $y$, $(f^{-1})'(y)$.
-
-If there is a sequence of variables being transformed one at a time, the overall Jacobian will be block diagonal, with a Jacobian equal to the product of the Jacobians of the blocks.  This makes it particularly simple to work on the unconstrained scale---we just map unconstrained parameters back to the constrained space using the inverse transform and add the log absolute determinant of its Jacobian.
-
-Stan allows variables to be declared that are lower bounded (for scales), upper bounded, range bounded (for probabilities), affine transforms (for non-centered parameterizations), ordered vectors (for cutpoints in ordinal regressions or identifying mixtures), unit vectors (for points on a hypersphere), simplexes (for categorical probability distributions), sum-to-zero vectors (for identifying varying effects), positive-definite symmetric matrices and their Cholesky factors (e.g., for covariance or precision matrices), and for unit-diagonal positive-definite matrices and their Cholesky factors (e.g., for correlation matrices). The Oryx package, which is part of TensorFlow Probability, provides an even wider range of useful transforms than Stan (e.g., softplus, alternative sigmoid cdfs, tanh, autoregressions, and flows, and many many more).
-
-In our simple regression example, the only constrained parameter is $\sigma > 0$.  We transform positive-constrained parameters using the log transform, e.g., $\sigma^\textrm{unc} = \log \sigma$. The inverse transform is the exponential. Applying the change-of-variables formula and using the fact that $\left| \nabla \exp(u) \right| = \exp(u)$, the corresponding unconstrained density is
+The only constrained parameter is $\sigma > 0$.  We transform positive-constrained parameters using the log transform, e.g., $\sigma^\textrm{unc} = \log \sigma$. The inverse transform is the exponential. Applying the change-of-variables formula and using the fact that $\left| \nabla \exp(u) \right| = |\exp'(u)| = \exp(u)$, the corresponding unconstrained density is
 $$
 p^\textrm{unc}(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
 = p(\alpha, \beta, \exp(\sigma^\textrm{unc}) \mid x, y) \cdot \exp(\sigma^\textrm{unc}).
@@ -154,42 +206,9 @@ $$
 $$
 
 
-
-
-## Inference for Bayesian statistics via MCMC
-
-Inference in Bayesian statistics beyond visualization is largely a matter of evaluating posterior expectations relative to this model.  In our regression model, that looks like
-$$
-\mathbb{E}[f(\alpha, \beta, \sigma) \mid y, x]
-= \int_{\mathbb{R} \times \mathbb{R}^P \times (0, \infty)} 
-f(\alpha, \beta, \sigma) \cdot p(\alpha, \beta, \sigma \mid y, x) \ \textrm{d}(\alpha, \beta, \sigma).
-$$.  
-For example, parameter estimates are given by, e.g.,
-$$
-\widehat{\alpha} = \mathbb{E}[\alpha \mid y, x].
-$$
-The probability of an event $A \subseteq \mathbb{R} \times \mathbb{R}^P \times (0, \infty)$ is 
-$$
-\textrm{Pr}[(\alpha, \beta, \sigma) \in A] = \mathbb{E}[\mathbb{1}_A(\alpha, \beta, \sigma)],
-$$
-where the indicator function $\mathbb{1}_A(a)$ is $1$ if $a \in A$ and $0$ otherwise.  Posterior predictive probabilities for new data $\tilde{y}$ with new covariates $\tilde{x}$ are given by
-$$
-p(\tilde{y} \mid x, y, \tilde{x})
-= \mathbb{E}[p(\tilde{y} \mid \alpha, \beta, \sigma, \tilde{x}) \mid x, y].
-$$
-All of these expectations are evaluated the same way given plug-in estimation based on a posterior sample
-$$
-\alpha^{(m)}, \beta^{(m)}, \sigma^{(m)} \sim p(\alpha, \beta, \sigma \mid x, y)
-$$
-for $0 \leq m < M$, as
-$$
-\mathbb{E}[f(\alpha, \beta, \sigma) \mid x, y] \approx \frac{1}{M} \sum_{m=1}^M f(\alpha^{(m)}, \beta^{(m)}, \sigma^{(m)}).
-$$
-If the draws are marginally taken according to the posterior, the estimates will be unbiased, and if the chains mix well (e.g., they are geometrically ergodic), the Markov chain Monte Carlo central limit theorem applies and standard errors in expectation estimates will decrease at a rate of $\mathcal{O}(1 / \sqrt{M})$ [@roberts2004mcmc].  In practice, we can use the (approximate and asymptotically exact) samplers in the Blackjax package for inference.
-
 ## Linear regression in Stan
 
-Here's an example Stan program defining a linear regression.  
+Here's an example Stan program defining a linear regression, which we have placed into the file `linear-regression.stan`. 
 
 ```stan
 data {
@@ -207,10 +226,10 @@ model {
   alpha ~ normal(0, 5);
   beta ~ normal(0, 2.5);
   sigma ~ exponential(0.5);
-  y ~ normal(alpha + beta * x, sigma);
+  y ~ normal(alpha + x * beta, sigma);
 }
 generated quantities {
-  vector[N_new] y_new = normal_rng(alpha + beta * x_new, sigma);
+  vector[N_new] y_new = normal_rng(alpha + x_new * beta, sigma);
 }
 ```
 
@@ -220,14 +239,26 @@ To ease the transition to JAX, note that the distribution statements in the mode
   target += normal_lupdf(alpha | 0, 5);
   target += normal_lupdf(beta | 0, 2.5);
   target += lognormal_lupdf(sigma | 0, 1);
-  target += normal_lupdf(alpha + beta * x, sigma);
+  target += normal_lupdf(alpha + x * beta, sigma);
 ```
 
 Here, the `_lupdf` indicates a log (`l`), unnormalized (`u`), probability density function (`pdf`).  For probability mass functions, replace `pdf` with `pmf`; to preserve normalizing constants, drop the `u`.
 
 ## Compilation to C++
 
-A Stan model compiles to a C++ class that reads the data in as part of its constructor [@stan2025ref].  The data variables are specified in the `data` block in the Stan program.  Here, we have the sizes, the covariate matrices (`x` plus `x_new` for posterior prediction), and the outcomes (`y`).  The constructed C++ class is immutable and provides several methods, the most central of which is an unconstrained (in the sense of having support over all of $\mathbb{R}^D$) log density function that is templated in order to support automatic differentiation [@carpenter2015ad].  In math, the constraining transform maps $(\alpha, \beta, \sigma^\text{u})$ to $(\alpha, \beta, \exp(\sigma^\text{u}))$.  The transforms are independent and the first two are the identity, so the Jacobian determinant works out to $\exp(\sigma^\text{u})$.  Thus the additive change-of-variables adjustment on the log scale is just $\log \exp(\sigma^\text{u}) = \sigma^\text{u}$.
+A Stan program translates almost line-for-line to a C++ class that implements all the interfaces around a model required for log density evaluation, posterior predictive quantity generation, and variable transforms [@stan2025ref].  Going block by block,
+
+* *Functions block*: Each function in the functions block is translated to a C++ function that is templated flexibly enough to allow automatic differentiation.  Forward declarations are made to support recursive definitions.
+
+* *Data and transformed data blocks*:  Each data declaration in the data block is translated to an argument of the class constructor.    The transformed data block is executed after the data is read in as the model object is being constructed.  After the model object is constructed with the data, it remains immutable to allow safe multi-threaded application.
+
+* *Parameter and transformed parameter blocks*:  The log density function is defined for unconstrained inputs gathered into a vector.  The frist part of the function unpacks the entries of that vector, applies the constraining transform to define constrained variables locally, then adds the log Jacobian determinant to the Jacobian accumulator to adjust for the change-of-variables making up the constraint.  Transformed  parameters also define local variables.  Everything executes serially as coded in the Stan program.
+
+* *Model block*: The rest of the body of the log density function is the line-by-line translation of Stan's model block.  Each distribution and target increment statement increments the log density accumulator, which is returned as the value of the function.  Everything is templated generally enough and coded in the underlying math library to allow automatic differentiation.
+
+* *Generated quantities block*: The generated quantities block translates to a function that maps the parameters and a random number generator to the variables of interest.  These are gathered by this function along with the parameters and transformed parameters to form vector output.  The names of all the parameters define the columns of output and output is on the constrained scale where the user and Stan program model block operate.
+
+The data variables are specified in the `data` block in the Stan program.  Here, we have the sizes, the covariate matrices (`x` plus `x_new` for posterior prediction), and the outcomes (`y`).  The constructed C++ class is immutable and provides several methods, the most central of which is an unconstrained (in the sense of having support over all of $\mathbb{R}^D$) log density function that is templated in order to support automatic differentiation [@carpenter2015ad].  In math, the constraining transform maps $(\alpha, \beta, \sigma^\text{u})$ to $(\alpha, \beta, \exp(\sigma^\text{u}))$.  The transforms are independent and the first two are the identity, so the Jacobian determinant works out to $\exp(\sigma^\text{u})$.  Thus the additive change-of-variables adjustment on the log scale is just $\log \exp(\sigma^\text{u}) = \sigma^\text{u}$.
 
 The model block defines a density function $p()$ over constrained parameters---this is typically derived and coded to implement the unnormalized posterior log density of a Bayesian model.  Densities are read elementwise, with scalar arguments being broadcast where necessary.  With this translation, the unnormalized log posterior over the constrained variables defined by the Stan program's model block is
 $$
@@ -261,7 +292,7 @@ Let's simulate some data.
 import json
 import numpy as np
 
-def simulate_regression(n=128, p=2, n_new=16, seed=145777):
+def simulate_regression(n=128, p=2, n_new=4, seed=145777):
     def simulate_covariates(n):
       x = rng.normal(size=(n, p))
       x[:, 0] = x[:, 0]**2
@@ -293,11 +324,12 @@ The simulated parameter values are as follows.
 print(f"alpha:{params['alpha']:6.2f};   beta[0]:{params['beta'][0]:6.2f};   beta[1]:{params['beta'][1]:6.2f};   sigma:{params['sigma']:6.2f}")
 ```
 
-Now that we have data, we can plot it.
+It's always a good idea to plot your data when possible.  We provide a plot of training data $y$ as a function of $x$ in @fig-sim-3d.
 
 ```{python python-code}
+#| label: fig-sim-3d
 #| code-fold: true
-#| fig-cap: "Simulated data from the quadratic–linear regression model. The horizontal axes show the covariates `x` and the vertical axis the value `y`."
+#| fig-cap: "*Simulated data from the quadratic–linear regression model. The horizontal axes show the covariates `x` and the vertical axis the value `y`.*"
 
 import plotly.express as px
 
@@ -313,6 +345,70 @@ def plot_3d(data):
 sim_fig = plot_3d(data)
 sim_fig
 ```
+
+
+
+## Fitting the model with MCMC
+
+Now that we have defined a Stan program and simulated data, we can perform inference based on the simulated data (pretending that we did not already know the parameters).  We will use Stan's defaults, which uses the multinomial no-U-turn sampler [@hoffman2014no,@betancourt2017conceptual] for fitting in four chains, with 1000 warmup and 1000 sampling iterations.
+
+We will use the Python interface CmdStanPy [@stan2024csp].  Recall that we have defined the variable `data` above based on the simulation.  First, we define the model based on the Stan program.  Second, we sample from the posterior of that model given some data.  Third, we print a summary of the fit.  Before that, we import the cmdstanpy package and turn the logging level down to `ERROR` so that our output isn't cluttered with progress messages.
+
+```{python python-code}
+#| code-fold: true
+import cmdstanpy as csp
+
+import logging
+csp.utils.get_logger().setLevel(logging.ERROR)
+```
+
+Once we've done that, fitting is a two-liner that first compiles the model, then samples given the data. 
+
+```{python python-code}
+#| code-fold: false
+
+m = csp.CmdStanModel(stan_file="linear-regression.stan")
+f = m.sample(data=data, show_progress=False)
+```
+
+Now that we have the fit, we can print a summary of the posterior.
+
+```{python python-code}
+#| code-fold: true
+print(f.summary(sig_figs=3))
+```
+
+The first column lists all the variables of interest in the model, with `lp__` denoting the unnormalized log posterior density.  The remaining columns are defined per variable and include the posterior mean, Monte Carlo standard error, posterior standard deviation, mean absolute deviation (like standard deviation for medians), three quantiles (5\%, 50\%, and 95\%), as well as some convergence diagnostics.  The rank-normalized $\widehat{R}$ statistic is reported in the last column, and the effective sample size in the bulk and tail of the density, as well as bulk effective sample size per second (where we see this all ran quickly); definitions of all of these can be found in @vehtari2021rank.
+
+
+# Stan's C++ model class transpilation target
+
+
+```cpp
+template <bool propto__, bool jacobian__, typename VecR>
+inline auto log_prob_impl(VecR& params_r__) const {
+  using T = stan::scalar_type_t<VecR>;
+  T lp__(0.0);
+  stan::math::accumulator<T> lp_accum__;
+  stan::io::deserializer<T> in__(params_r__);
+  auto alpha = in__.template read<T>();
+  auto beta = in__.template read<Eigen::Matrix<T,-1,1>>(P);
+  auto sigma = in__.template read_constrain_lb<T, jacobian__>(0, lp__);
+  lp_accum__.add(stan::math::normal_lpdf<propto__>(alpha,
+                    0, 5));
+  lp_accum__.add(stan::math::normal_lpdf<propto__>(beta,
+                    0, 2.5));
+  lp_accum__.add(stan::math::exponential_lpdf<propto__>(sigma, 0.5));
+  lp_accum__.add(stan::math::normal_lpdf<propto__>(y,
+                    stan::math::add(alpha,
+                      stan::math::multiply(beta, x)), sigma));
+  lp_accum__.add(lp__);
+  return lp_accum__.sum();
+}
+```
+
+
+
 
 ## Linear regression in JAX with `densejax`
 
