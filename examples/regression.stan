@@ -13,8 +13,8 @@ model {
   alpha ~ normal(0, 5);
   beta ~ normal(0, 2.5);
   sigma ~ exponential(0.5);
-  y ~ normal(alpha + beta * x, sigma);
+  y ~ normal(alpha + x * beta, sigma);
 }
 generated quantities {
-  vector[N_new] y_new = normal_rng(alpha + beta * x_new, sigma);
+  vector[N_new] y_new = to_vector(normal_rng(alpha + x_new * beta, sigma));
 }
