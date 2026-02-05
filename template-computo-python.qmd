@@ -352,12 +352,16 @@ sim_fig
 
 Now that we have defined a Stan program and simulated data, we can perform inference based on the simulated data (pretending that we did not already know the parameters).  We will use Stan's defaults, which uses the multinomial no-U-turn sampler [@hoffman2014no,@betancourt2017conceptual] for fitting in four chains, with 1000 warmup and 1000 sampling iterations.
 
-We will use the Python interface CmdStanPy [@stan2024csp].  Recall that we have defined the variable `data` above based on the simulation.  First, we define the model based on the Stan program.  Second, we sample from the posterior of that model given some data.  Third, we print a summary of the fit.  Before that, we import the cmdstanpy package and turn the logging level down to `ERROR` so that our output isn't cluttered with progress messages.
+We will use the Python interface CmdStanPy [@stan2024csp].  Recall that we have defined the variable `data` above based on the simulation.  First, we define the model based on the Stan program.  Second, we sample from the posterior of that model given some data.  Third, we print a summary of the fit.  Before that, we import the cmdstanpy package and make sure we have a compiled CmdStan installation and turn the logging level down to `ERROR` so that our output isn't cluttered with progress messages.
 
 ```{python python-code}
 #| code-fold: true
 import cmdstanpy as csp
+csp.install_cmdstan()
+```
 
+
+```{python python-code}
 import logging
 csp.utils.get_logger().setLevel(logging.ERROR)
 ```

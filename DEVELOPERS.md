@@ -5,7 +5,7 @@ These are instructions for how to build the document from source on Mac OS X.  T
 
 0. Start at the top level of this repository.
 ```bash
-$ cd dj-paper
+cd dj-paper
 ```
 
 1.  Install `miniconda`.
