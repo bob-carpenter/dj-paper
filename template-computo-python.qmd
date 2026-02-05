@@ -229,7 +229,7 @@ model {
   y ~ normal(alpha + x * beta, sigma);
 }
 generated quantities {
-  vector[N_new] y_new = normal_rng(alpha + x_new * beta, sigma);
+  array[N_new] real y_new = normal_rng(alpha + x_new * beta, sigma);
 }
 ```
 
