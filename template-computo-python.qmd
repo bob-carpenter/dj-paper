@@ -367,7 +367,7 @@ Once we've done that, fitting is a two-liner that first compiles the model, then
 ```{python python-code}
 #| code-fold: false
 
-m = csp.CmdStanModel(stan_file="linear-regression.stan")
+m = csp.CmdStanModel(stan_file="examples/regression.stan")
 f = m.sample(data=data, show_progress=False)
 ```
 
