@@ -15,3 +15,7 @@ format: gfm
 ### Abstract
 
 {{< meta abstract >}}
+
+### Rendered draft
+
+* GitHub pages:  [Jax à la Stan](https://{{< meta github-user >}}.github.io/{{< meta repo >}}/)

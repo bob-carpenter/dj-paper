@@ -24,7 +24,7 @@ Stan [@carpenter2017stan] is a domain-specific language for expressing different
 
 The Stan project introduced several state of the art gradient-based inference algorithms including the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], Pathfinder variational inference [@zhang2022pathfinder], and black-box nested Laplace approximations [@margossian2023general] as well as posterior analysis tools such as split- and ranked-$\widehat{R}$ and corresponding bulk and tail effective sample size [@vehtari2021rank], leave-one-out cross-validation [@vehtari2017practical], refined simulation-based calibration checks [@talts2018validating], and prior predictive checks [@gabry2019visualization].  It is often used as the basis of methodological developments such as Bayesian workflow [@gelman2020workflow].
  
-So why not just use Stan? The first reason is that Stan is largely CPU-bound.  All of its analysis tools and algorithms run on the CPU.  Although there are ways to call individual functions in a Stan program on the GPU (e.g., Cholesky decomposition) and ways to apply map-reduce across multiple cores, this is not enough.  Stan lacks a way to keep computation in-kernel on the GPU or organize inference to enable single-instruction multiple-data (SIMD) parallelism.  As a result, Stan is not competitive on modern hardware [@sountsov2024running; @maskell2024jaxgpu].
+So why not just use Stan? The first reason is that Stan is largely CPU-bound.  All of its analysis tools and algorithms run on the CPU.  Although there are ways to call individual functions in a Stan program on the GPU (e.g., Cholesky decomposition) and ways to apply map-reduce across multiple cores, this is not enough.  Stan lacks a way to keep computation in-kernel on the GPU or organize inference to enable single-instruction multiple-data (SIMD) parallelism.  Although Stan has been faster than JAX on CPU, it is not competitive on modern hardware [@sountsov2024running; @maskell2024jaxgpu].
 
 The second obstacle to using Stan is the need to learn a second language. While Stan is not particularly complicated, it does present several additional difficulties beyond unfamiliar syntax and semantics.
 
@@ -158,7 +158,7 @@ If there is a sequence of variables being transformed one at a time, the overall
 Stan supplies constraints for variables that are lower bounded (for scales), upper bounded (for log probabilities), range bounded (for probabilities), affine transforms (for non-centered parameterizations), ordered vectors (for cutpoints in ordinal regressions or identifying mixtures), unit vectors (for points on a hypersphere), simplexes (for categorical probability distributions), sum-to-zero vectors (for identifying varying effects), positive-definite symmetric matrices and their Cholesky factors (for covariance or precision matrices), and for unit-diagonal positive-definite matrices and their Cholesky factors (for correlation matrices). The Oryx package, which is native to JAX and built on top of the TensorFlow Probability bijectors package [@dillon2017tensorflow], provides an even wider range of useful transforms than Stan (e.g., softplus, alternative sigmoid cdfs, tanh, autoregressions, and flows, and many many more).
 
 
-# A worked example
+# Coding and fitting models with Stan
 
 To ground the discussion, let's consider the concrete example of coding a linear regression and using it to predict new observations.
 
@@ -194,7 +194,7 @@ p(\alpha, \beta, \sigma \mid y, x)
 \propto p(y, \alpha, \beta, \sigma \mid x).
 $$
 
-The only constrained parameter is $\sigma > 0$.  We transform positive-constrained parameters using the log transform, e.g., $\sigma^\textrm{unc} = \log \sigma$. The inverse transform is the exponential. Applying the change-of-variables formula and using the fact that $\left| \nabla \exp(u) \right| = |\exp'(u)| = \exp(u)$, the corresponding unconstrained density is
+The only constrained parameter is $\sigma > 0$.  We transform positive-constrained parameters using the log transform, i.e., $\sigma^\textrm{unc} = \log \sigma$. The inverse transform is the exponential. Applying the change-of-variables formula and using the fact that $\left| \nabla \exp(u) \right| = |\exp'(u)| = \exp(u)$, the corresponding unconstrained density is
 $$
 p^\textrm{unc}(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
 = p(\alpha, \beta, \exp(\sigma^\textrm{unc}) \mid x, y) \cdot \exp(\sigma^\textrm{unc}).
@@ -244,48 +244,10 @@ To ease the transition to JAX, note that the distribution statements in the mode
 
 Here, the `_lupdf` indicates a log (`l`), unnormalized (`u`), probability density function (`pdf`).  For probability mass functions, replace `pdf` with `pmf`; to preserve normalizing constants, drop the `u`.
 
-## Compilation to C++
 
-A Stan program translates almost line-for-line to a C++ class that implements all the interfaces around a model required for log density evaluation, posterior predictive quantity generation, and variable transforms [@stan2025ref].  Going block by block,
+## Simulating data
 
-* *Functions block*: Each function in the functions block is translated to a C++ function that is templated flexibly enough to allow automatic differentiation.  Forward declarations are made to support recursive definitions.
-
-* *Data and transformed data blocks*:  Each data declaration in the data block is translated to an argument of the class constructor.    The transformed data block is executed after the data is read in as the model object is being constructed.  After the model object is constructed with the data, it remains immutable to allow safe multi-threaded application.
-
-* *Parameter and transformed parameter blocks*:  The log density function is defined for unconstrained inputs gathered into a vector.  The frist part of the function unpacks the entries of that vector, applies the constraining transform to define constrained variables locally, then adds the log Jacobian determinant to the Jacobian accumulator to adjust for the change-of-variables making up the constraint.  Transformed  parameters also define local variables.  Everything executes serially as coded in the Stan program.
-
-* *Model block*: The rest of the body of the log density function is the line-by-line translation of Stan's model block.  Each distribution and target increment statement increments the log density accumulator, which is returned as the value of the function.  Everything is templated generally enough and coded in the underlying math library to allow automatic differentiation.
-
-* *Generated quantities block*: The generated quantities block translates to a function that maps the parameters and a random number generator to the variables of interest.  These are gathered by this function along with the parameters and transformed parameters to form vector output.  The names of all the parameters define the columns of output and output is on the constrained scale where the user and Stan program model block operate.
-
-The data variables are specified in the `data` block in the Stan program.  Here, we have the sizes, the covariate matrices (`x` plus `x_new` for posterior prediction), and the outcomes (`y`).  The constructed C++ class is immutable and provides several methods, the most central of which is an unconstrained (in the sense of having support over all of $\mathbb{R}^D$) log density function that is templated in order to support automatic differentiation [@carpenter2015ad].  In math, the constraining transform maps $(\alpha, \beta, \sigma^\text{u})$ to $(\alpha, \beta, \exp(\sigma^\text{u}))$.  The transforms are independent and the first two are the identity, so the Jacobian determinant works out to $\exp(\sigma^\text{u})$.  Thus the additive change-of-variables adjustment on the log scale is just $\log \exp(\sigma^\text{u}) = \sigma^\text{u}$.
-
-The model block defines a density function $p()$ over constrained parameters---this is typically derived and coded to implement the unnormalized posterior log density of a Bayesian model.  Densities are read elementwise, with scalar arguments being broadcast where necessary.  With this translation, the unnormalized log posterior over the constrained variables defined by the Stan program's model block is
-$$
-\log p(\alpha, \beta, \sigma \mid x, y)
- =  \log \textrm{normal}(\alpha \mid 0, 5)
- +  \sum_{p=1}^P \textrm{normal}(\beta_p \mid 0, 2.5) \\
- +  \log \textrm{gamma}(\sigma \mid 0.5) 
- +  \sum_{n=1}^N \textrm{normal}(y_n \mid \alpha + \beta \cdot x_n, \sigma).
-$$
-The corresponding unconstrained log density $q()$ over which inference is performed, adds the log Jacobian adjustment for the change of variables,
-$$
-\log q(\alpha, \beta, \sigma^\text{u} \mid x, y)
-= \log p(\alpha, \beta, \exp(\sigma^\text{u}) \mid x, y) + \sigma^\text{u}.
-$$
-
-To support the changes of variables for reporting constrained output, the compiled C++ code exposes the constraining transform and its Jacobians. For initialization from constrained parameters, there is a matching unconstraining transform.  The model class also supplies methods for determining the shape and names of the constrained and unconstrained parameters.  
-
-The final component of a compiled Stan model is a function to perform predictive inference as defined by the generated quantities block (this can also be done post-hoc with a new program and generated quantities block).  In particular, the model compiles a generated quantities function that takes a random number generator and produces the output defined in the generated quantities block purely by forward sampling without the need for any automatic differentiation.
-
-## Running the Stan program
-
-In order to fit a model, we need data.
-
-### Simulating data
-
-The sizes and covariates $x$ cannot be simulated from the model as they are not modeled.
-Let's simulate some data.
+The sizes and covariates $x$ cannot be simulated from the model as they are not modeled.  We'll have to invent a distribution for those in order to simulate data, and we'll take $p=2$ and generate standard normal variates $x_{0:N, 0} \sim \textrm{normal}(0, 1)$, and take $x_{0:N, 1} \sim \textrm{chiSq}(1)$ by squaring a standard normal variate.
 
 ```{python python-code}
 #| code-fold: false
@@ -295,7 +257,7 @@ import numpy as np
 def simulate_regression(n=128, p=2, n_new=4, seed=145777):
     def simulate_covariates(n):
       x = rng.normal(size=(n, p))
-      x[:, 0] = x[:, 0]**2
+      x[:, 1] = x[:, 1]**2
       return x
 
     rng = np.random.default_rng(seed)
@@ -352,7 +314,9 @@ sim_fig
 
 Now that we have defined a Stan program and simulated data, we can perform inference based on the simulated data (pretending that we did not already know the parameters).  We will use Stan's defaults, which uses the multinomial no-U-turn sampler [@hoffman2014no,@betancourt2017conceptual] for fitting in four chains, with 1000 warmup and 1000 sampling iterations.
 
-We will use the Python interface CmdStanPy [@stan2024csp].  Recall that we have defined the variable `data` above based on the simulation.  First, we define the model based on the Stan program.  Second, we sample from the posterior of that model given some data.  Third, we print a summary of the fit.  Before that, we import the cmdstanpy package and make sure we have a compiled CmdStan installation and turn the logging level down to `ERROR` so that our output isn't cluttered with progress messages.
+### The CmdStanPy interface
+
+We will use the Python interface CmdStanPy [@stan2024csp], which makes an external system call to the reference command-line interface, CmdStan.    Before that, we import the cmdstanpy package and make sure we have a compiled CmdStan installation and turn the logging level down to `ERROR` so that our output isn't cluttered with progress messages.
 
 ```{python python-code}
 #| code-fold: true
@@ -366,50 +330,138 @@ import logging
 csp.utils.get_logger().setLevel(logging.ERROR)
 ```
 
-Once we've done that, fitting is a two-liner that first compiles the model, then samples given the data. 
+### Transpilation, compilation, and sampling
+
+Once we've done that, fitting is a two-liner that first transpiles the Stan program to C++ and compiles the C++ code.  
 
 ```{python python-code}
 #| code-fold: false
 
 m = csp.CmdStanModel(stan_file="linear-regression.stan")
+```
+
+Then it calls the sampler.  
+
+
+```{python python-code}
+#| code-fold: false
 f = m.sample(data=data, show_progress=False)
 ```
 
-Now that we have the fit, we can print a summary of the posterior.
+The variable `data` was defined above in the simulation.  The call to `sample()` uses CmdStanPy's default configuration parameters.  By default, Stan uses the multinomial, biased-progressive no-U-turn sampler [@betancourt2017conceptual], which invokes three stages of warmup (finding the bulk of the probability mass, estimating the inverse mass matrix, and estimating the step size). By default, Stan runs 1000 warmup and 1000 sampling iterations in 4 independent chains---this is often more than are necessary for model development and many applications.
+
+### Posterior summaries
+
+Now that we have the fit, we can print a summary of the posterior from CmdStan, limiting the number of significant figures based on the number of draws.  As we do below, we could also invoke ArviZ, which is alredy instrumented to accept CmdStanPy output as input.
 
 ```{python python-code}
-#| code-fold: true
-print(f.summary(sig_figs=3))
+#| code-fold: false
+f.summary(sig_figs=3)
 ```
 
 The first column lists all the variables of interest in the model, with `lp__` denoting the unnormalized log posterior density.  The remaining columns are defined per variable and include the posterior mean, Monte Carlo standard error, posterior standard deviation, mean absolute deviation (like standard deviation for medians), three quantiles (5\%, 50\%, and 95\%), as well as some convergence diagnostics.  The rank-normalized $\widehat{R}$ statistic is reported in the last column, and the effective sample size in the bulk and tail of the density, as well as bulk effective sample size per second (where we see this all ran quickly); definitions of all of these can be found in @vehtari2021rank.
 
+This summary shows that the model fits very well.  While it doesn't report timing, the effective sample size per second statistic lets you infer that this all ran in less than 0.1s.  The $\widehat{R}$ statistics are all below 1.005 and the effective sample sizes are all above 2000 with 4000 total sampling draws across four chains.
 
-# Stan's C++ model class transpilation target
 
+# Compiling Stan's blocks to C++
+
+A Stan program translates almost line-for-line to a C++ class that implements all the interfaces around a model required for log density evaluation, posterior predictive quantity generation, and variable transforms [@stan2025ref].  Going block by block,
+
+* *Functions block*: Each function in the functions block is translated to a C++ function that is templated flexibly enough to allow automatic differentiation.  Forward declarations are made to support recursive definitions.  The main limitation to Stan's functions is that they cannot cross blocks and they cannot introduce block-level variables such as data or parameters; a secondary limitation is that arguments must be real or integer based.  Thus it is not possible to define functions like the built-in ODE solvers that take functions as arguments.
+
+* *Data and transformed data blocks*:  Each data declaration in the data block is translated to an argument of the class constructor.  It thus behaves like the signature for the data ingestion function.  The transformed data block is executed after the data is read in as the model object is being constructed.  After the model object is constructed with the data, it remains immutable to allow safe multi-threaded application.
+
+* *Parameter and transformed parameter blocks*:  The log density function is defined for unconstrained inputs gathered into a vector.  The frist part of the function unpacks the entries of that vector, applies the constraining transform to define constrained variables locally, then adds the log Jacobian determinant to the Jacobian accumulator to adjust for the change-of-variables making up the constraint.  Transformed  parameters also define local variables.  Everything executes serially as coded in the Stan program.
+
+* *Model block*: The rest of the body of the log density function is the line-by-line translation of Stan's model block.  Each distribution and target increment statement increments the log density accumulator, which is returned as the value of the function.  Everything is templated generally enough and coded in the underlying math library to allow automatic differentiation.
+
+* *Generated quantities block*: The generated quantities block translates to a function that maps the parameters and a random number generator to the variables of interest.  These are gathered by this function along with the parameters and transformed parameters to form vector output.  The names of all the parameters define the columns of output and output is on the constrained scale where the user and Stan program model block operate.
+
+
+### The compiled C++ class
+
+The C++ class generated for the model has the following signatures, which have been simplified to remove debugging traces, template traits restrictions, and some fine-grained control parameters.  This is the same interface as is exposed by BridgeStan in Python, R, Julia, C, and Rust [@roualdes2023bridgestan].
 
 ```cpp
-template <bool propto__, bool jacobian__, typename VecR>
-inline auto log_prob_impl(VecR& params_r__) const {
-  using T = stan::scalar_type_t<VecR>;
-  T lp__(0.0);
-  stan::math::accumulator<T> lp_accum__;
-  stan::io::deserializer<T> in__(params_r__);
-  auto alpha = in__.template read<T>();
-  auto beta = in__.template read<Eigen::Matrix<T,-1,1>>(P);
-  auto sigma = in__.template read_constrain_lb<T, jacobian__>(0, lp__);
-  lp_accum__.add(stan::math::normal_lpdf<propto__>(alpha,
-                    0, 5));
-  lp_accum__.add(stan::math::normal_lpdf<propto__>(beta,
-                    0, 2.5));
-  lp_accum__.add(stan::math::exponential_lpdf<propto__>(sigma, 0.5));
-  lp_accum__.add(stan::math::normal_lpdf<propto__>(y,
-                    stan::math::add(alpha,
-                      stan::math::multiply(beta, x)), sigma));
-  lp_accum__.add(lp__);
-  return lp_accum__.sum();
+namespace lr_model_namespace {
+
+class lr_model : model_base<lr_model> {
+  // data, transformed data
+  int N, N_new, P;    MatrixXd x;
+  VectorXd y;         MatrixXd x_new;
+
+  // read data from c, compute generated quantities
+  linear_regression_model(var_context& c, int seed,
+                          ostream* msgs);
+
+  // log densitye type T, propto drops constants, jacobian adjusts
+  template <bool propto, bool jacobian, typename T>
+  Vector<T> log_prob(Vector<T>& params, ostream* msgs) const;
+
+  // evaluate generated quantities and write csv
+  void write(RNG& rng, const VectorXd& params,
+             ostream* csv_stream) const;
+
+  
+  string model_name() const noexcept;
+
+  void unconstrain(const VectorXd& constrained_params,
+                   VectorXd& unconstrained_params) const;
+  void constrain(var_context& vars, VectorXd& constrained_params,
+                 ostream* msgs) const;
+
+  void param_names(vector<string>& names) const;
+  void constrained_param_names(vector<string>& names) const;
+};
+} // lr_model_namespace
+
+// global namespace factory for lr_model
+model_base& new_model(var_context& c, int seed, ostream* msgs);
+```
+
+The data variables are specified in the `data` block in the Stan program.  Here, we have the sizes, the covariate matrices (`x` plus `x_new` for posterior prediction), and the outcomes (`y`).  The constructed C++ class is immutable and provides several methods, the most central of which is an unconstrained (in the sense of having support over all of $\mathbb{R}^D$) log density function that is templated in order to support automatic differentiation [@carpenter2015ad].  In math, the constraining transform maps $(\alpha, \beta, \sigma^\text{u})$ to $(\alpha, \beta, \exp(\sigma^\text{u}))$.  The transforms are independent and the first two are the identity, so the Jacobian determinant works out to $\exp(\sigma^\text{u})$.  Thus the additive change-of-variables adjustment on the log scale is just $\log \exp(\sigma^\text{u}) = \sigma^\text{u}$.
+
+The model block defines a density function $p()$ over constrained parameters---this is typically derived and coded to implement the unnormalized posterior log density of a Bayesian model.  Densities are read elementwise, with scalar arguments being broadcast where necessary.  With this translation, the unnormalized log posterior over the constrained variables defined by the Stan program's model block is
+$$
+\log p(\alpha, \beta, \sigma \mid x, y)
+ =  \log \textrm{normal}(\alpha \mid 0, 5)
+ +  \sum_{p=1}^P \textrm{normal}(\beta_p \mid 0, 2.5) \\
+ +  \log \textrm{gamma}(\sigma \mid 0.5) 
+ +  \sum_{n=1}^N \textrm{normal}(y_n \mid \alpha + \beta \cdot x_n, \sigma).
+$$
+The corresponding unconstrained log density $q()$ over which inference is performed, adds the log Jacobian adjustment for the change of variables,
+$$
+\log q(\alpha, \beta, \sigma^\text{u} \mid x, y)
+= \log p(\alpha, \beta, \exp(\sigma^\text{u}) \mid x, y) + \sigma^\text{u}.
+$$
+
+The C++ implementing the log density function performs the following sequence of operations, which directly follows the Stan program.  The typing, logging, debugging tracing, message I/O, and name mangling have all been simplified.  
+
+```cpp
+template <bool propto, bool jacobian, typename T>
+inline auto log_prob(Vector<T>& params) const {
+  T lp = 0;
+  accumulator<T> accum;
+  deserializer<T> in(params)
+  auto alpha = in.template read<T>();
+  auto beta = in.template read<Vector<T>>(P);
+  auto sigma = in__.template read_constrain_lb<T, jacobian>(0, lp);
+  accum.add(normal_lpdf<propto>(alpha, 0, 5));
+  accum.add(normal_lpdf<propto>(beta, 0, 2.5));
+  accum.add(exponential_lpdf<propto>(sigma, 0.5));
+  accum.add(normal_lpdf<propto>(y, add(alpha, multiply(beta, x))), sigma);
+  accum.add(lp);
+  return lp.sum();
 }
 ```
+
+The `read` methods of the deserializer read the next variable fromn the sequence of parameters, perform any necessary constraining transform and add any Jacobian adjustment to `lp`, controlled by the flag `jacobian`.  Arithmetic in the Stan program is replaced with overloaded internal library calls `add` and `multiply` which can handle vectors and scalars.  There is implicit broadcasting and internal summation in the `normal_lpdf` log density function.  When applied to a vector like `beta` or `y`, it sums the log densities of the components, broadcasting any scalar arguments as necessary.  The accumulator collects terms and then its method `sum` returns a flattened autodiff tree with a single root pointing to all the terms with implicit no-op unit derivatives.
+
+To support the changes of variables for reporting constrained output, the compiled C++ code exposes the constraining transform and its Jacobians. For initialization from constrained parameters, there is a matching unconstraining transform.  The model class also supplies methods for determining the shape and names of the constrained and unconstrained parameters.  
+
+The final component of a compiled Stan model is a function to perform predictive inference as defined by the generated quantities block (this can also be done post-hoc with a new program and generated quantities block).  In particular, the model compiles a generated quantities function that takes a random number generator and produces the output defined in the generated quantities block purely by forward sampling without the need for any automatic differentiation.
+
 
 
 
@@ -453,6 +505,603 @@ can compute log densities and their gradients, as well as transform parameters f
 
 In Python, the `arviz` package [@kumar2019arviz] provides extensive posterior analysis including means, standard deviations, quantiles, covariances, rank-normalized $\widehat{R}$-statistics for convergence monitoring, effective sample sizes, and estimator standard errors [@vehtari2021rank], as well as efficient approximate leave-one-out cross-validation for model comparison [@vehtari2017practical].
 
+
+# Appendix:  Generated Stan code
+
+Here is the full output of CmdStan 2.38 when compiling our example linear regression model.
+
+```cpp
+// Code generated by stanc v2.38.0
+#include <stan/model/model_header.hpp>
+namespace linear_regression_model_namespace {
+using stan::model::model_base_crtp;
+using namespace stan::math;
+stan::math::profile_map profiles__;
+static constexpr std::array<const char*, 20> locations_array__ =
+  {" (found before start of program)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 8, column 2 to column 13)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 9, column 2 to column 17)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 10, column 2 to column 22)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 19, column 2 to column 68)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 13, column 2 to column 23)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 14, column 2 to column 24)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 15, column 2 to column 27)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 16, column 2 to column 38)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 2, column 2 to column 27)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 3, column 9 to column 10)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 3, column 12 to column 13)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 3, column 2 to column 17)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 4, column 9 to column 10)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 4, column 2 to column 14)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 5, column 9 to column 14)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 5, column 16 to column 17)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 5, column 2 to column 25)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 9, column 9 to column 10)",
+  " (in '/Users/carp/github/bob-carpenter/dj-paper/linear-regression.stan', line 19, column 8 to column 13)"};
+class linear_regression_model final : public model_base_crtp<linear_regression_model> {
+ private:
+  int N;
+  int N_new;
+  int P;
+  Eigen::Matrix<double,-1,-1> x_data__;
+  Eigen::Matrix<double,-1,1> y_data__;
+  Eigen::Matrix<double,-1,-1> x_new_data__;
+  Eigen::Map<Eigen::Matrix<double,-1,-1>> x{nullptr, 0, 0};
+  Eigen::Map<Eigen::Matrix<double,-1,1>> y{nullptr, 0};
+  Eigen::Map<Eigen::Matrix<double,-1,-1>> x_new{nullptr, 0, 0};
+ public:
+  ~linear_regression_model() {}
+  linear_regression_model(stan::io::var_context& context__, unsigned int
+                          random_seed__ = 0, std::ostream*
+                          pstream__ = nullptr) : model_base_crtp(0) {
+    int current_statement__ = 0;
+    // suppress unused var warning
+    (void) current_statement__;
+    using local_scalar_t__ = double;
+    auto base_rng__ = stan::services::util::create_rng(random_seed__, 0);
+    // suppress unused var warning
+    (void) base_rng__;
+    static constexpr const char* function__ =
+      "linear_regression_model_namespace::linear_regression_model";
+    // suppress unused var warning
+    (void) function__;
+    local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
+    // suppress unused var warning
+    (void) DUMMY_VAR__;
+    try {
+      int pos__ = std::numeric_limits<int>::min();
+      pos__ = 1;
+      current_statement__ = 9;
+      context__.validate_dims("data initialization", "N", "int",
+        std::vector<size_t>{});
+      N = std::numeric_limits<int>::min();
+      current_statement__ = 9;
+      N = context__.vals_i("N")[(1 - 1)];
+      current_statement__ = 9;
+      stan::math::check_greater_or_equal(function__, "N", N, 0);
+      current_statement__ = 9;
+      context__.validate_dims("data initialization", "N_new", "int",
+        std::vector<size_t>{});
+      N_new = std::numeric_limits<int>::min();
+      current_statement__ = 9;
+      N_new = context__.vals_i("N_new")[(1 - 1)];
+      current_statement__ = 9;
+      stan::math::check_greater_or_equal(function__, "N_new", N_new, 0);
+      current_statement__ = 9;
+      context__.validate_dims("data initialization", "P", "int",
+        std::vector<size_t>{});
+      P = std::numeric_limits<int>::min();
+      current_statement__ = 9;
+      P = context__.vals_i("P")[(1 - 1)];
+      current_statement__ = 9;
+      stan::math::check_greater_or_equal(function__, "P", P, 0);
+      current_statement__ = 10;
+      stan::math::validate_non_negative_index("x", "N", N);
+      current_statement__ = 11;
+      stan::math::validate_non_negative_index("x", "P", P);
+      current_statement__ = 12;
+      context__.validate_dims("data initialization", "x", "double",
+        std::vector<size_t>{static_cast<size_t>(N), static_cast<size_t>(P)});
+      x_data__ = Eigen::Matrix<double,-1,-1>::Constant(N, P,
+                   std::numeric_limits<double>::quiet_NaN());
+      new (&x) Eigen::Map<Eigen::Matrix<double,-1,-1>>(x_data__.data(), N, P);
+      {
+        std::vector<local_scalar_t__> x_flat__;
+        current_statement__ = 12;
+        x_flat__ = context__.vals_r("x");
+        pos__ = 1;
+        for (int sym1__ = 1; sym1__ <= P; ++sym1__) {
+          for (int sym2__ = 1; sym2__ <= N; ++sym2__) {
+            stan::model::assign(x, x_flat__[(pos__ - 1)],
+              "assigning variable x", stan::model::index_uni(sym2__),
+              stan::model::index_uni(sym1__));
+            pos__ = (pos__ + 1);
+          }
+        }
+      }
+      current_statement__ = 13;
+      stan::math::validate_non_negative_index("y", "N", N);
+      current_statement__ = 14;
+      context__.validate_dims("data initialization", "y", "double",
+        std::vector<size_t>{static_cast<size_t>(N)});
+      y_data__ = Eigen::Matrix<double,-1,1>::Constant(N,
+                   std::numeric_limits<double>::quiet_NaN());
+      new (&y) Eigen::Map<Eigen::Matrix<double,-1,1>>(y_data__.data(), N);
+      {
+        std::vector<local_scalar_t__> y_flat__;
+        current_statement__ = 14;
+        y_flat__ = context__.vals_r("y");
+        pos__ = 1;
+        for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
+          stan::model::assign(y, y_flat__[(pos__ - 1)],
+            "assigning variable y", stan::model::index_uni(sym1__));
+          pos__ = (pos__ + 1);
+        }
+      }
+      current_statement__ = 15;
+      stan::math::validate_non_negative_index("x_new", "N_new", N_new);
+      current_statement__ = 16;
+      stan::math::validate_non_negative_index("x_new", "P", P);
+      current_statement__ = 17;
+      context__.validate_dims("data initialization", "x_new", "double",
+        std::vector<size_t>{static_cast<size_t>(N_new),
+          static_cast<size_t>(P)});
+      x_new_data__ = Eigen::Matrix<double,-1,-1>::Constant(N_new, P,
+                       std::numeric_limits<double>::quiet_NaN());
+      new (&x_new)
+        Eigen::Map<Eigen::Matrix<double,-1,-1>>(x_new_data__.data(), N_new,
+        P);
+      {
+        std::vector<local_scalar_t__> x_new_flat__;
+        current_statement__ = 17;
+        x_new_flat__ = context__.vals_r("x_new");
+        pos__ = 1;
+        for (int sym1__ = 1; sym1__ <= P; ++sym1__) {
+          for (int sym2__ = 1; sym2__ <= N_new; ++sym2__) {
+            stan::model::assign(x_new, x_new_flat__[(pos__ - 1)],
+              "assigning variable x_new", stan::model::index_uni(sym2__),
+              stan::model::index_uni(sym1__));
+            pos__ = (pos__ + 1);
+          }
+        }
+      }
+      current_statement__ = 18;
+      stan::math::validate_non_negative_index("beta", "P", P);
+      current_statement__ = 19;
+      stan::math::validate_non_negative_index("y_new", "N_new", N_new);
+    } catch (const std::exception& e) {
+      stan::lang::rethrow_located(e, locations_array__[current_statement__]);
+    }
+    num_params_r__ = 1 + P + 1;
+  }
+  inline std::string model_name() const final {
+    return "linear_regression_model";
+  }
+  inline std::vector<std::string> model_compile_info() const noexcept {
+    return std::vector<std::string>{"stanc_version = stanc3 v2.38.0",
+             "stancflags = "};
+  }
+  // Base log prob
+  template <bool propto__, bool jacobian__, typename VecR, typename VecI,
+            stan::require_vector_like_t<VecR>* = nullptr,
+            stan::require_vector_like_vt<std::is_integral, VecI>* = nullptr,
+            stan::require_not_st_var<VecR>* = nullptr>
+  inline stan::scalar_type_t<VecR>
+  log_prob_impl(VecR& params_r__, VecI& params_i__, std::ostream*
+                pstream__ = nullptr) const {
+    using T__ = stan::scalar_type_t<VecR>;
+    using local_scalar_t__ = T__;
+    T__ lp__(0.0);
+    stan::math::accumulator<T__> lp_accum__;
+    stan::io::deserializer<local_scalar_t__> in__(params_r__, params_i__);
+    int current_statement__ = 0;
+    // suppress unused var warning
+    (void) current_statement__;
+    local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
+    // suppress unused var warning
+    (void) DUMMY_VAR__;
+    static constexpr const char* function__ =
+      "linear_regression_model_namespace::log_prob";
+    // suppress unused var warning
+    (void) function__;
+    try {
+      current_statement__ = 1;
+      auto alpha = in__.template read<local_scalar_t__>();
+      current_statement__ = 2;
+      auto beta = in__.template read<Eigen::Matrix<local_scalar_t__,-1,1>>(P);
+      current_statement__ = 3;
+      auto sigma =
+        in__.template read_constrain_lb<local_scalar_t__, jacobian__>(0,
+          lp__);
+      {
+        current_statement__ = 5;
+        lp_accum__.add(stan::math::normal_lpdf<propto__>(alpha,
+                         static_cast<double>(0), static_cast<double>(5)));
+        current_statement__ = 6;
+        lp_accum__.add(stan::math::normal_lpdf<propto__>(beta,
+                         static_cast<double>(0), 2.5));
+        current_statement__ = 7;
+        lp_accum__.add(stan::math::exponential_lpdf<propto__>(sigma, 0.5));
+        current_statement__ = 8;
+        lp_accum__.add(stan::math::normal_lpdf<propto__>(y,
+                         stan::math::add(alpha, stan::math::multiply(x, beta)),
+                         sigma));
+      }
+    } catch (const std::exception& e) {
+      stan::lang::rethrow_located(e, locations_array__[current_statement__]);
+    }
+    lp_accum__.add(lp__);
+    return lp_accum__.sum();
+  }
+  // Reverse mode autodiff log prob
+  template <bool propto__, bool jacobian__, typename VecR, typename VecI,
+            stan::require_vector_like_t<VecR>* = nullptr,
+            stan::require_vector_like_vt<std::is_integral, VecI>* = nullptr,
+            stan::require_st_var<VecR>* = nullptr>
+  inline stan::scalar_type_t<VecR>
+  log_prob_impl(VecR& params_r__, VecI& params_i__, std::ostream*
+                pstream__ = nullptr) const {
+    using T__ = stan::scalar_type_t<VecR>;
+    using local_scalar_t__ = T__;
+    T__ lp__(0.0);
+    stan::math::accumulator<T__> lp_accum__;
+    stan::io::deserializer<local_scalar_t__> in__(params_r__, params_i__);
+    int current_statement__ = 0;
+    // suppress unused var warning
+    (void) current_statement__;
+    local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
+    // suppress unused var warning
+    (void) DUMMY_VAR__;
+    static constexpr const char* function__ =
+      "linear_regression_model_namespace::log_prob";
+    // suppress unused var warning
+    (void) function__;
+    try {
+      current_statement__ = 1;
+      auto alpha = in__.template read<local_scalar_t__>();
+      current_statement__ = 2;
+      auto beta = in__.template read<Eigen::Matrix<local_scalar_t__,-1,1>>(P);
+      current_statement__ = 3;
+      auto sigma =
+        in__.template read_constrain_lb<local_scalar_t__, jacobian__>(0,
+          lp__);
+      {
+        current_statement__ = 5;
+        lp_accum__.add(stan::math::normal_lpdf<propto__>(alpha,
+                         static_cast<double>(0), static_cast<double>(5)));
+        current_statement__ = 6;
+        lp_accum__.add(stan::math::normal_lpdf<propto__>(beta,
+                         static_cast<double>(0), 2.5));
+        current_statement__ = 7;
+        lp_accum__.add(stan::math::exponential_lpdf<propto__>(sigma, 0.5));
+        current_statement__ = 8;
+        lp_accum__.add(stan::math::normal_lpdf<propto__>(y,
+                         stan::math::add(alpha, stan::math::multiply(x, beta)),
+                         sigma));
+      }
+    } catch (const std::exception& e) {
+      stan::lang::rethrow_located(e, locations_array__[current_statement__]);
+    }
+    lp_accum__.add(lp__);
+    return lp_accum__.sum();
+  }
+  template <typename RNG, typename VecR, typename VecI, typename VecVar,
+            stan::require_vector_like_vt<std::is_floating_point,
+            VecR>* = nullptr, stan::require_vector_like_vt<std::is_integral,
+            VecI>* = nullptr, stan::require_vector_vt<std::is_floating_point,
+            VecVar>* = nullptr>
+  inline void
+  write_array_impl(RNG& base_rng__, VecR& params_r__, VecI& params_i__,
+                   VecVar& vars__, const bool
+                   emit_transformed_parameters__ = true, const bool
+                   emit_generated_quantities__ = true, std::ostream*
+                   pstream__ = nullptr) const {
+    using local_scalar_t__ = double;
+    stan::io::deserializer<local_scalar_t__> in__(params_r__, params_i__);
+    stan::io::serializer<local_scalar_t__> out__(vars__);
+    static constexpr bool propto__ = true;
+    // suppress unused var warning
+    (void) propto__;
+    double lp__ = 0.0;
+    // suppress unused var warning
+    (void) lp__;
+    int current_statement__ = 0;
+    // suppress unused var warning
+    (void) current_statement__;
+    stan::math::accumulator<double> lp_accum__;
+    local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
+    // suppress unused var warning
+    (void) DUMMY_VAR__;
+    constexpr bool jacobian__ = false;
+    // suppress unused var warning
+    (void) jacobian__;
+    static constexpr const char* function__ =
+      "linear_regression_model_namespace::write_array";
+    // suppress unused var warning
+    (void) function__;
+    try {
+      current_statement__ = 1;
+      auto alpha = in__.template read<local_scalar_t__>();
+      current_statement__ = 2;
+      auto beta = in__.template read<Eigen::Matrix<local_scalar_t__,-1,1>>(P);
+      current_statement__ = 3;
+      auto sigma =
+        in__.template read_constrain_lb<local_scalar_t__, jacobian__>(0,
+          lp__);
+      out__.write(alpha);
+      out__.write(beta);
+      out__.write(sigma);
+      if (stan::math::logical_negation(
+            (stan::math::primitive_value(emit_transformed_parameters__) ||
+            stan::math::primitive_value(emit_generated_quantities__)))) {
+        return ;
+      }
+      if (stan::math::logical_negation(emit_generated_quantities__)) {
+        return ;
+      }
+      std::vector<double> y_new =
+        std::vector<double>(N_new, std::numeric_limits<double>::quiet_NaN());
+      current_statement__ = 4;
+      stan::model::assign(y_new,
+        stan::math::normal_rng(
+          stan::math::add(alpha, stan::math::multiply(x_new, beta)), sigma,
+          base_rng__), "assigning variable y_new");
+      out__.write(y_new);
+    } catch (const std::exception& e) {
+      stan::lang::rethrow_located(e, locations_array__[current_statement__]);
+    }
+  }
+  template <typename VecVar, typename VecI,
+            stan::require_vector_t<VecVar>* = nullptr,
+            stan::require_vector_like_vt<std::is_integral, VecI>* = nullptr>
+  inline void
+  unconstrain_array_impl(const VecVar& params_r__, const VecI& params_i__,
+                         VecVar& vars__, std::ostream* pstream__ = nullptr) const {
+    using local_scalar_t__ = double;
+    stan::io::deserializer<local_scalar_t__> in__(params_r__, params_i__);
+    stan::io::serializer<local_scalar_t__> out__(vars__);
+    int current_statement__ = 0;
+    // suppress unused var warning
+    (void) current_statement__;
+    local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
+    // suppress unused var warning
+    (void) DUMMY_VAR__;
+    try {
+      local_scalar_t__ alpha = DUMMY_VAR__;
+      current_statement__ = 1;
+      alpha = in__.read<local_scalar_t__>();
+      out__.write(alpha);
+      Eigen::Matrix<local_scalar_t__,-1,1> beta =
+        Eigen::Matrix<local_scalar_t__,-1,1>::Constant(P, DUMMY_VAR__);
+      current_statement__ = 2;
+      stan::model::assign(beta,
+        in__.read<Eigen::Matrix<local_scalar_t__,-1,1>>(P),
+        "assigning variable beta");
+      out__.write(beta);
+      local_scalar_t__ sigma = DUMMY_VAR__;
+      current_statement__ = 3;
+      sigma = in__.read<local_scalar_t__>();
+      out__.write_free_lb(0, sigma);
+    } catch (const std::exception& e) {
+      stan::lang::rethrow_located(e, locations_array__[current_statement__]);
+    }
+  }
+  template <typename VecVar, stan::require_vector_t<VecVar>* = nullptr>
+  inline void
+  transform_inits_impl(const stan::io::var_context& context__, VecVar&
+                       vars__, std::ostream* pstream__ = nullptr) const {
+    using local_scalar_t__ = double;
+    stan::io::serializer<local_scalar_t__> out__(vars__);
+    int current_statement__ = 0;
+    // suppress unused var warning
+    (void) current_statement__;
+    local_scalar_t__ DUMMY_VAR__(std::numeric_limits<double>::quiet_NaN());
+    // suppress unused var warning
+    (void) DUMMY_VAR__;
+    try {
+      current_statement__ = 1;
+      context__.validate_dims("parameter initialization", "alpha", "double",
+        std::vector<size_t>{});
+      current_statement__ = 2;
+      context__.validate_dims("parameter initialization", "beta", "double",
+        std::vector<size_t>{static_cast<size_t>(P)});
+      current_statement__ = 3;
+      context__.validate_dims("parameter initialization", "sigma", "double",
+        std::vector<size_t>{});
+      int pos__ = std::numeric_limits<int>::min();
+      pos__ = 1;
+      local_scalar_t__ alpha = DUMMY_VAR__;
+      current_statement__ = 1;
+      alpha = context__.vals_r("alpha")[(1 - 1)];
+      out__.write(alpha);
+      Eigen::Matrix<local_scalar_t__,-1,1> beta =
+        Eigen::Matrix<local_scalar_t__,-1,1>::Constant(P, DUMMY_VAR__);
+      {
+        std::vector<local_scalar_t__> beta_flat__;
+        current_statement__ = 2;
+        beta_flat__ = context__.vals_r("beta");
+        pos__ = 1;
+        for (int sym1__ = 1; sym1__ <= P; ++sym1__) {
+          stan::model::assign(beta, beta_flat__[(pos__ - 1)],
+            "assigning variable beta", stan::model::index_uni(sym1__));
+          pos__ = (pos__ + 1);
+        }
+      }
+      out__.write(beta);
+      local_scalar_t__ sigma = DUMMY_VAR__;
+      current_statement__ = 3;
+      sigma = context__.vals_r("sigma")[(1 - 1)];
+      out__.write_free_lb(0, sigma);
+    } catch (const std::exception& e) {
+      stan::lang::rethrow_located(e, locations_array__[current_statement__]);
+    }
+  }
+  inline void
+  get_param_names(std::vector<std::string>& names__, const bool
+                  emit_transformed_parameters__ = true, const bool
+                  emit_generated_quantities__ = true) const {
+    names__ = std::vector<std::string>{"alpha", "beta", "sigma"};
+    if (emit_transformed_parameters__) {}
+    if (emit_generated_quantities__) {
+      std::vector<std::string> temp{"y_new"};
+      names__.reserve(names__.size() + temp.size());
+      names__.insert(names__.end(), temp.begin(), temp.end());
+    }
+  }
+  inline void
+  get_dims(std::vector<std::vector<size_t>>& dimss__, const bool
+           emit_transformed_parameters__ = true, const bool
+           emit_generated_quantities__ = true) const {
+    dimss__ = std::vector<std::vector<size_t>>{std::vector<size_t>{},
+                std::vector<size_t>{static_cast<size_t>(P)},
+                std::vector<size_t>{}};
+    if (emit_transformed_parameters__) {}
+    if (emit_generated_quantities__) {
+      std::vector<std::vector<size_t>>
+        temp{std::vector<size_t>{static_cast<size_t>(N_new)}};
+      dimss__.reserve(dimss__.size() + temp.size());
+      dimss__.insert(dimss__.end(), temp.begin(), temp.end());
+    }
+  }
+  inline void
+  constrained_param_names(std::vector<std::string>& param_names__, bool
+                          emit_transformed_parameters__ = true, bool
+                          emit_generated_quantities__ = true) const final {
+    param_names__.emplace_back(std::string() + "alpha");
+    for (int sym1__ = 1; sym1__ <= P; ++sym1__) {
+      param_names__.emplace_back(std::string() + "beta" + '.' +
+        std::to_string(sym1__));
+    }
+    param_names__.emplace_back(std::string() + "sigma");
+    if (emit_transformed_parameters__) {}
+    if (emit_generated_quantities__) {
+      for (int sym1__ = 1; sym1__ <= N_new; ++sym1__) {
+        param_names__.emplace_back(std::string() + "y_new" + '.' +
+          std::to_string(sym1__));
+      }
+    }
+  }
+  inline void
+  unconstrained_param_names(std::vector<std::string>& param_names__, bool
+                            emit_transformed_parameters__ = true, bool
+                            emit_generated_quantities__ = true) const final {
+    param_names__.emplace_back(std::string() + "alpha");
+    for (int sym1__ = 1; sym1__ <= P; ++sym1__) {
+      param_names__.emplace_back(std::string() + "beta" + '.' +
+        std::to_string(sym1__));
+    }
+    param_names__.emplace_back(std::string() + "sigma");
+    if (emit_transformed_parameters__) {}
+    if (emit_generated_quantities__) {
+      for (int sym1__ = 1; sym1__ <= N_new; ++sym1__) {
+        param_names__.emplace_back(std::string() + "y_new" + '.' +
+          std::to_string(sym1__));
+      }
+    }
+  }
+  inline std::string get_constrained_sizedtypes() const {
+    return std::string("[{\"name\":\"alpha\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"beta\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(P) + "},\"block\":\"parameters\"},{\"name\":\"sigma\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"y_new\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(N_new) + ",\"element_type\":{\"name\":\"real\"}},\"block\":\"generated_quantities\"}]");
+  }
+  inline std::string get_unconstrained_sizedtypes() const {
+    return std::string("[{\"name\":\"alpha\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"beta\",\"type\":{\"name\":\"vector\",\"length\":" + std::to_string(P) + "},\"block\":\"parameters\"},{\"name\":\"sigma\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"y_new\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(N_new) + ",\"element_type\":{\"name\":\"real\"}},\"block\":\"generated_quantities\"}]");
+  }
+  // Begin method overload boilerplate
+  template <typename RNG> inline void
+  write_array(RNG& base_rng, Eigen::Matrix<double,-1,1>& params_r,
+              Eigen::Matrix<double,-1,1>& vars, const bool
+              emit_transformed_parameters = true, const bool
+              emit_generated_quantities = true, std::ostream*
+              pstream = nullptr) const {
+    const size_t num_params__ = 1 + P + 1;
+    const size_t num_transformed = emit_transformed_parameters * (0U);
+    const size_t num_gen_quantities = emit_generated_quantities * (N_new);
+    const size_t num_to_write = num_params__ + num_transformed +
+      num_gen_quantities;
+    std::vector<int> params_i;
+    vars = Eigen::Matrix<double,-1,1>::Constant(num_to_write,
+             std::numeric_limits<double>::quiet_NaN());
+    write_array_impl(base_rng, params_r, params_i, vars,
+      emit_transformed_parameters, emit_generated_quantities, pstream);
+  }
+  template <typename RNG> inline void
+  write_array(RNG& base_rng, std::vector<double>& params_r, std::vector<int>&
+              params_i, std::vector<double>& vars, bool
+              emit_transformed_parameters = true, bool
+              emit_generated_quantities = true, std::ostream*
+              pstream = nullptr) const {
+    const size_t num_params__ = 1 + P + 1;
+    const size_t num_transformed = emit_transformed_parameters * (0U);
+    const size_t num_gen_quantities = emit_generated_quantities * (N_new);
+    const size_t num_to_write = num_params__ + num_transformed +
+      num_gen_quantities;
+    vars = std::vector<double>(num_to_write,
+             std::numeric_limits<double>::quiet_NaN());
+    write_array_impl(base_rng, params_r, params_i, vars,
+      emit_transformed_parameters, emit_generated_quantities, pstream);
+  }
+  template <bool propto__, bool jacobian__, typename T_> inline T_
+  log_prob(Eigen::Matrix<T_,-1,1>& params_r, std::ostream* pstream = nullptr) const {
+    Eigen::Matrix<int,-1,1> params_i;
+    return log_prob_impl<propto__, jacobian__>(params_r, params_i, pstream);
+  }
+  template <bool propto__, bool jacobian__, typename T_> inline T_
+  log_prob(std::vector<T_>& params_r, std::vector<int>& params_i,
+           std::ostream* pstream = nullptr) const {
+    return log_prob_impl<propto__, jacobian__>(params_r, params_i, pstream);
+  }
+  inline void
+  transform_inits(const stan::io::var_context& context,
+                  Eigen::Matrix<double,-1,1>& params_r, std::ostream*
+                  pstream = nullptr) const final {
+    std::vector<double> params_r_vec(params_r.size());
+    std::vector<int> params_i;
+    transform_inits(context, params_i, params_r_vec, pstream);
+    params_r = Eigen::Map<Eigen::Matrix<double,-1,1>>(params_r_vec.data(),
+                 params_r_vec.size());
+  }
+  inline void
+  transform_inits(const stan::io::var_context& context, std::vector<int>&
+                  params_i, std::vector<double>& vars, std::ostream*
+                  pstream__ = nullptr) const {
+    vars.resize(num_params_r__);
+    transform_inits_impl(context, vars, pstream__);
+  }
+  inline void
+  unconstrain_array(const std::vector<double>& params_constrained,
+                    std::vector<double>& params_unconstrained, std::ostream*
+                    pstream = nullptr) const {
+    const std::vector<int> params_i;
+    params_unconstrained = std::vector<double>(num_params_r__,
+                             std::numeric_limits<double>::quiet_NaN());
+    unconstrain_array_impl(params_constrained, params_i,
+      params_unconstrained, pstream);
+  }
+  inline void
+  unconstrain_array(const Eigen::Matrix<double,-1,1>& params_constrained,
+                    Eigen::Matrix<double,-1,1>& params_unconstrained,
+                    std::ostream* pstream = nullptr) const {
+    const std::vector<int> params_i;
+    params_unconstrained = Eigen::Matrix<double,-1,1>::Constant(num_params_r__,
+                             std::numeric_limits<double>::quiet_NaN());
+    unconstrain_array_impl(params_constrained, params_i,
+      params_unconstrained, pstream);
+  }
+};
+}
+using stan_model = linear_regression_model_namespace::linear_regression_model;
+#ifndef USING_R
+// Boilerplate
+stan::model::model_base&
+new_model(stan::io::var_context& data_context, unsigned int seed,
+          std::ostream* msg_stream) {
+  stan_model* m = new stan_model(data_context, seed, msg_stream);
+  return *m;
+}
+stan::math::profile_map& get_stan_profile_data() {
+  return linear_regression_model_namespace::profiles__;
+}
+#endif
+```
 
 # References {.unnumbered}
 

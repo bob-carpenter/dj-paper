@@ -1,6 +1,6 @@
 # JAX à la Stan
 Brian Ward, Mitzi Morris, Andrew Gelman, Bob Carpenter
-2026-02-03
+2026-02-09
 
 ### Authors
 
@@ -37,3 +37,8 @@ wider range of inference algorithms, and TensorFlow Probability provides
 a wider range of variable transforms. Together, these tools provide an
 environment to code models in the style of Stan targeting modern
 hardware without leaving an integrated Python programming environment.
+
+### Rendered draft
+
+- GitHub pages: [Jax à la
+  Stan](https://bob-carpenter.github.io/dj-paper/)

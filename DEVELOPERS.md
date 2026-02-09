@@ -3,6 +3,8 @@ DEVELOPER INSTRUCTIONS (MAC OS X)
 
 These are instructions for how to build the document from source on Mac OS X.  This involves wrestling with Conda, which needs to be done for *each new shell instance*.
 
+## First-time with installation
+
 0. Start at the top level of this repository.
 ```bash
 cd dj-paper
@@ -52,3 +54,13 @@ python -c "import cmdstanpy; cmdstanpy.install_cmdstan()"
 ```bash
 quarto render
 ```
+
+## Subsequent activations
+
+Once installed, subsequent activations require only:
+
+```bash
+eval "$(/opt/homebrew/bin/conda shell.zsh hook)" 
+conda activate template-python
+```
+
