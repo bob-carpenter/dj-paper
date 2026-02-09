@@ -490,27 +490,32 @@ $$
 = \log p(\alpha, \beta, \exp(\sigma^\text{u}) \mid x, y) + \sigma^\text{u}.
 $$
 
-The C++ implementing the log density function performs the following sequence of operations, which directly follows the Stan program.  The typing, logging, debugging tracing, message I/O, and name mangling have all been simplified.  
+The C++ implementing the log density function performs the following sequence of operations, which directly follows the Stan program.  The typing, logging, debugging traces, message I/O, and name mangling have all been simplified.  
 
 ```cpp
 template <bool propto, bool jacobian, typename T>
 inline auto log_prob(Vector<T>& params) const {
-  T lp = 0;
-  accumulator<T> accum;
-  deserializer<T> in(params)
+  Accumulator<T> accum;
+  
+  // transpiled parameters block
+  T log_jacobian;
+  Deserializer<T> in(params)
   auto alpha = in.template read<T>();
   auto beta = in.template read<Vector<T>>(P);
-  auto sigma = in__.template read_constrain_lb<T, jacobian>(0, lp);
+  auto sigma = in__.template read_constrain_lb<T, jacobian>(0, log_jacobian);
+  accum.add(log_jacobian);
+
+  // transpiled model block
   accum.add(normal_lpdf<propto>(alpha, 0, 5));
   accum.add(normal_lpdf<propto>(beta, 0, 2.5));
   accum.add(exponential_lpdf<propto>(sigma, 0.5));
   accum.add(normal_lpdf<propto>(y, add(alpha, multiply(beta, x))), sigma);
-  accum.add(lp);
-  return lp.sum();
+
+  return accum.sum();
 }
 ```
 
-The `read` methods of the deserializer read the next variable fromn the sequence of parameters, perform any necessary constraining transform and add any Jacobian adjustment to `lp`, controlled by the flag `jacobian`.  Arithmetic in the Stan program is replaced with overloaded internal library calls `add` and `multiply` which can handle vectors and scalars.  There is implicit broadcasting and internal summation in the `normal_lpdf` log density function.  When applied to a vector like `beta` or `y`, it sums the log densities of the components, broadcasting any scalar arguments as necessary.  The accumulator collects terms and then its method `sum` returns a flattened autodiff tree with a single root pointing to all the terms with implicit no-op unit derivatives.
+The `read` methods of the deserializer read the next variable fromn the sequence of parameters, perform any necessary constraining transform and add any Jacobian adjustment to `lp`, controlled by the flag `jacobian`.  Arithmetic in the Stan program is replaced with overloaded internal library calls `add` and `multiply` which can handle vectors and scalars.  There is implicit broadcasting and internal summation in the `normal_lpdf` log density function.  When applied to a vector like `beta` or `y`, it sums the log densities of the components, broadcasting any scalar arguments as necessary.  The accumulator collects terms and then its method `sum` returns a flattened autodiff tree with a single root pointing to all the terms with implicit unit derivatives.
 
 To support the changes of variables for reporting constrained output, the compiled C++ code exposes the constraining transform and its Jacobians. For initialization from constrained parameters, there is a matching unconstraining transform.  The model class also supplies methods for determining the shape and names of the constrained and unconstrained parameters.  
 
