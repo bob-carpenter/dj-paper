@@ -282,30 +282,57 @@ params, data = simulate_regression()
 The simulated parameter values are as follows.
 
 ```{python python-code}
-#| code-fold: true
+#| code-fold: false
 print(f"alpha:{params['alpha']:6.2f};   beta[0]:{params['beta'][0]:6.2f};   beta[1]:{params['beta'][1]:6.2f};   sigma:{params['sigma']:6.2f}")
 ```
 
-It's always a good idea to plot your data when possible.  We provide a plot of training data $y$ as a function of $x$ in @fig-sim-3d.
+It's always a good idea to plot your data when possible.  We provide a plot of training data $y$ as a function of $x$ in @fig-sim-expected-y and @fig-sim-observed-x.
 
 ```{python python-code}
-#| label: fig-sim-3d
 #| code-fold: true
-#| fig-cap: "*Simulated data from the quadratic–linear regression model. The horizontal axes show the covariates `x` and the vertical axis the value `y`.*"
+#| fig-cap: "*A heatmap plot of `y = alpha + x @ beta` vs. `x` over 4 marginal standard deviations. The horizontal axes show the covariates `x` and the color represents $y$.*"
+#| label: fig-sim-expected-y
 
-import plotly.express as px
+import pandas as pd
+import plotnine as pn
+pn.options.set_option("figure_format", "png")
+pn.options.set_option("figure_size", (10, 6))
 
-def plot_3d(data):
-    x = np.asarray(data["x"])
-    y = np.asarray(data["y"])
-    fig = px.scatter_3d(
-        x=x[:, 0], y=x[:, 1], z=y,
-        labels={"x": "x[1]", "y": "x[2]", "z": "y"},
-    )
-    return fig
+alpha, beta = params['alpha'], params['beta']
+x1_lim=(-4.0, 4.0)
+x2_lim=(0.0, 16.0)
+n=201
+beta = np.asarray(beta, dtype=float).reshape(-1)
+x1_grid = np.linspace(x1_lim[0], x1_lim[1], n)
+x2_grid = np.linspace(x2_lim[0], x2_lim[1], n)
+x1_mesh, x2_mesh = np.meshgrid(x1_grid, x2_grid, indexing="xy")
+mu = float(alpha) + beta[0] * x1_mesh + beta[1] * x2_mesh
+grid_df = pd.DataFrame({ 'x1': x1_mesh.ravel(),
+                         'x2': x2_mesh.ravel(),
+                         'mu': mu.ravel() })
+plot_expected_y = (
+    pn.ggplot(grid_df, pn.aes("x1", "x2", fill="mu"))
+    + pn.geom_raster()
+    + pn.labs(x="x[ : , 0]", y="x[ : , 1]",
+              fill="E[y | x]", title="Expected value surface")
+)
+plot_expected_y.show()
+```
 
-sim_fig = plot_3d(data)
-sim_fig
+```{python python-code}
+#| code-fold: true
+#| fig-cap: "*Observed values of $x$ in the simulation.*"
+#| label: fig-sim-observed-x
+
+x = np.asarray(data["x"], dtype=float)
+obs_df = pd.DataFrame({"x1": x[:, 0], "x2": x[:, 1]})
+plot_observed = (
+    pn.ggplot(obs_df, pn.aes("x1", "x2"))
+    + pn.geom_point(size=1.5, alpha=0.7)
+    + pn.labs(x="x[ : , 0]", y="x[ : , 1]",
+              title="Observed x values")
+)
+plot_observed.show()
 ```
 
 
@@ -319,7 +346,7 @@ Now that we have defined a Stan program and simulated data, we can perform infer
 We will use the Python interface CmdStanPy [@stan2024csp], which makes an external system call to the reference command-line interface, CmdStan.    Before that, we import the cmdstanpy package and make sure we have a compiled CmdStan installation and turn the logging level down to `ERROR` so that our output isn't cluttered with progress messages.
 
 ```{python python-code}
-#| code-fold: true
+#| code-fold: false
 import cmdstanpy as csp
 csp.install_cmdstan()
 ```
@@ -336,7 +363,6 @@ Once we've done that, fitting is a two-liner that first transpiles the Stan prog
 
 ```{python python-code}
 #| code-fold: false
-
 m = csp.CmdStanModel(stan_file="linear-regression.stan")
 ```
 
@@ -345,23 +371,51 @@ Then it calls the sampler.
 
 ```{python python-code}
 #| code-fold: false
-f = m.sample(data=data, show_progress=False)
+fit = m.sample(data=data, show_progress=False)
 ```
 
 The variable `data` was defined above in the simulation.  The call to `sample()` uses CmdStanPy's default configuration parameters.  By default, Stan uses the multinomial, biased-progressive no-U-turn sampler [@betancourt2017conceptual], which invokes three stages of warmup (finding the bulk of the probability mass, estimating the inverse mass matrix, and estimating the step size). By default, Stan runs 1000 warmup and 1000 sampling iterations in 4 independent chains---this is often more than are necessary for model development and many applications.
 
-### Posterior summaries
+### Posterior summaries with CmdStanPy and ArviZ
 
-Now that we have the fit, we can print a summary of the posterior from CmdStan, limiting the number of significant figures based on the number of draws.  As we do below, we could also invoke ArviZ, which is alredy instrumented to accept CmdStanPy output as input.
+Now that we have the fit, we can print a summary of the posterior from CmdStan, limiting the number of significant figures based on the number of draws.  
 
 ```{python python-code}
 #| code-fold: false
-f.summary(sig_figs=3)
+summary_csp = fit.summary(sig_figs=3)
+print(summary_csp)
 ```
-
 The first column lists all the variables of interest in the model, with `lp__` denoting the unnormalized log posterior density.  The remaining columns are defined per variable and include the posterior mean, Monte Carlo standard error, posterior standard deviation, mean absolute deviation (like standard deviation for medians), three quantiles (5\%, 50\%, and 95\%), as well as some convergence diagnostics.  The rank-normalized $\widehat{R}$ statistic is reported in the last column, and the effective sample size in the bulk and tail of the density, as well as bulk effective sample size per second (where we see this all ran quickly); definitions of all of these can be found in @vehtari2021rank.
 
 This summary shows that the model fits very well.  While it doesn't report timing, the effective sample size per second statistic lets you infer that this all ran in less than 0.1s.  The $\widehat{R}$ statistics are all below 1.005 and the effective sample sizes are all above 2000 with 4000 total sampling draws across four chains.
+
+Roughly the same summary can be achieved using the standalone package ArviZ, which shares many developers with Stan.
+
+```{python python-code}
+#| code-fold: false
+import arviz as az
+
+fit_xr = fit.draws_xr()
+summary_az = az.summary(fit_xr)
+print(summary_az)
+```
+
+The main difference is that ArviZ defaults to reporting 94% highest density intervals rather than traditional central intervals based on quantiles.  ArviZ can be configured to include Stan's quantile output, if desired and the highest-density interval changed to 90% coverage to match Stan's output using NumPy's quantile functions.
+
+```{python pythnon-code}
+#| code-fold: false
+summary_az_stan = az.summary(
+    fit_xr,
+    hdi_prob=0.9,
+    stat_funcs={
+        "q5": lambda x: np.quantile(x, 0.05),
+        "q50": lambda x: np.quantile(x, 0.50),
+        "q95": lambda x: np.quantile(x, 0.95),
+    },
+    extend=True
+)
+print(summary_az_stan)
+```
 
 
 # Compiling Stan's blocks to C++
@@ -506,7 +560,7 @@ can compute log densities and their gradients, as well as transform parameters f
 In Python, the `arviz` package [@kumar2019arviz] provides extensive posterior analysis including means, standard deviations, quantiles, covariances, rank-normalized $\widehat{R}$-statistics for convergence monitoring, effective sample sizes, and estimator standard errors [@vehtari2021rank], as well as efficient approximate leave-one-out cross-validation for model comparison [@vehtari2017practical].
 
 
-# Appendix:  Generated Stan code
+# Appendix:  Generated Stan C++ code
 
 Here is the full output of CmdStan 2.38 when compiling our example linear regression model.
 

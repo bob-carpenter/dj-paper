@@ -54,6 +54,9 @@ draft: true
 published: false
 license: CC-BY-4.0
 format:
-  computo-html: default
-  computo-pdf: default
+  computo-html:
+    fig-format: png
+  computo-pdf:
+    fig-format: pdf
+    keep-tex: true
 jupyter: python3

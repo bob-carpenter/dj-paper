@@ -7,16 +7,15 @@ dependencies:
   - numpy
   - scipy
   - pandas
-  - matplotlib
+  - plotnine
   - jupyter
   - ipykernel
   - cmake
   - make
-  - plotly
-  - compilers        # conda-forge meta-package: provides gcc/g++ on linux
+  - compilers
   - pip:
       - arviz
       - blackjax
       - cmdstanpy
       - bridgestan
-      - "jax[cpu]"    # CPU build; for GPU/TPU this differs
+      - "jax[cpu]"
