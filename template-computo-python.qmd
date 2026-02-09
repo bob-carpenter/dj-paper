@@ -47,7 +47,7 @@ When models get more complicated in terms of novel parameter constraints, densit
 
 A second reason to prefer the approach we are presenting here is that it is much more direct.  By that, we mean that like Stan, the resulting code is implemented transparently in an imperative fashion rather than indirectly through the structure of the directed acyclic graph.
 
-## Special function support
+## Special function support in JAX
 
 Stan has an extensive library of special mathematical and statistical functions, as well as restructuring functions for arrays and matrices.  Many of these are needed to differentiate cumulative distribution functions and to define custom densities.  Here's a brief overview of the coverage available in JAX compared to Stan.  The bottom line is that support for special functions is much much better in JAX than in Stan.
 
@@ -83,49 +83,60 @@ Stan has an extensive library of special mathematical and statistical functions,
 Other than the omission of 1D integration and the backward pass of the forward-backward algorithm, the special function and probability distribution and transform libraries of JAX are *better* than those supplied by Stan.  When it comes to even more complicated functions like PDE and SDE solvers and neural networks, Stan isn't even in the game.  The JAX-based PPL NumPyro can also make use of these JAX packages in many cases, especially if users are willing to forego its underlying graphical model abstraction.
 
 
-## Constrained parameter support
+## Constrained parameter support in JAX
 
 Stan provides built-in transforms for constrained parameters to provide densities with support over all of $\mathbb{R}^D$, along with the corresponding change-of-variables adjustments.  These are custom implementations with analytic Jacobian-adjoint product gradients and vectorized application to containers.
 
 The Oryx transform library in TensorFlow is built on top of the TFP bijector library ([`tfp.bijectors`](https://www.tensorflow.org/probability/api_docs/python/tfp/bijectors)) [@dillon2017tensorflow], which can also be used directly.  TFP bijectors provide all of the transforms provided by Stan and many more including softplus, various cdfs and hyperbolic tangent as replacements for inverse-logit, more multivariate transforms such as cumulative sums and Householder factorizations, as well as trained transforms like RealNVP normalizing flows [@dinh2016density].  Oryx additionally allows transforms to be written down directly in such a way that Oryx can automatically calculate inverse transforms and Jacobian determinants of inverse transforms.
 
-## Modularity
+## Modularity in JAX
 
 SlicStan [@gorinova2019slic] reconceived Stan without blocks---the sorting into data, parameters, and generated quantities was carried out by data flow analysis.  The primary motivation was to make it possible to modularly express concepts like a hierarchical prior.  With Stan itself, this is impossible unless the modularity is in the form of a simple function.  With SlicStan, the parameters, priors, etc., could all be constructed modularly and reused.  By allowing models to be expressed directly in Python code, NumPyro and PyMC already support modular code reuse.  Although it is rare to see this feature used in example code, it is widely used in production.
 
 By coding models directly in Python, we gain the same benefits of NumPyro and PyMC.  We can write general programs returning arbitrary components of a probabilistic program and combine them at will.  We will provide examples below.
 
 
-# The Bayesian inference problem
+# Bayesian inference via Sampling
 
 In this section, we will lay out the precise definition of the Bayesian inference problem we are trying to compute, show how it can be computed asymptotically exactly using Monte Carlo methods, and apply some simple calculus to transform parameterizations to be unconstrained (i.e., have support over all of $\mathbb{R}^D$).  
 
-## Bayesian models and inference
+## Bayesian models
 
 A Bayesian model is nothing more than a joint distribution over parameters $\theta$ and data $y$.  By the chain rule, the posterior distribution of the parameters given the data is given by $p(\theta \mid y) \propto p(\theta, y)$.  Often our density is factored into a prior times a likelihood, $p(\theta \mid y) = p(\theta) \cdot p(y \mid \theta)$, but nothing in Stan or what we are proposing for JAX presupposes a clean factorization.  In fact, our methods can be used to sample from any old density---it doesn't have to arise as a Bayesian posterior.
 
-For Bayesian inference, we are typically interested in expectations with respect to the posterior.  For instance, the parameter estimate that minimizes expected square error (assuming the model is correct) is the posterior mean,
+## Bayesian inference with posterior expectations
+
+Bayesian inference involves visualizing and summarizing quantities of interest in the posterior and posterior predictive distributions.  For summaries, we are typically interested in either posterior averages or posterior quantiles of a function of the parameters.  Quantiles are typically used to give us medians and uncertainty intervals, while averages give us everything else. By averaging estimates of quantities of interest derived from parameters weighted by posterior density, we can account for estimation uncertainty into account in our inferences. 
+
+Averages over the posterior density are most naturally expressed using expectation notation.  Given a random variable $\Theta \in \mathbb{R}^D$ representing knowledge about the paraemters, the expectation of a function $f:\mathbb{R}^D \rightarrow \mathbb{R}$ is given by
 $$
-\widehat{\theta} = \mathbb{E}[\theta \mid y].
+\mathbb{E}[f(\Theta) \mid y]
+= \int_{\mathbb{R}^D} f(\theta) \cdot p(\theta \mid y) \, \textrm{d}\theta.
 $$
-The posterior covariance is
+The rest of this section provides examples of common functions whose expectations are evaluated for Bayesian inference.
+
+The parameter estimate that minimizes expected square error, assuming the model is correct, is the posterior mean,
 $$
-\textrm{var}[\theta] = \mathbb{E}[(\theta - \widehat{\theta}) \cdot (\theta - \widehat{\theta})^\top].
+\widehat{\theta} = \mathbb{E}[\Theta \mid y].
 $$
+This is just taking the function $f$ to be the identity.  The posterior covariance is
+$$
+\textrm{var}[\Theta \mid y] = \mathbb{E}[(\Theta - \widehat{\theta}) \cdot (\theta - \widehat{\theta})^\top].
+$$
+Here the function is $f(\theta) = (\theta - \widehat{\theta}) \cdot (\theta - \widehat{\theta})^\top.$.  
+
 If we have an event $A \subseteq \mathbb{R}^D$, then its probability is given by the expectation of its indicator function,
 $$
-\Pr[\theta \in A] = \mathbb{E}[\mathbb{1}_A(\theta \in A) \mid y].
+\Pr[\theta \in A \mid y] = \mathbb{E}[\mathbb{1}_A(\theta \in A) \mid y].
 $$
-If we want to evaluate posterior predictive densities for new data $\tilde{y}$, then
+
+If we want to evaluate posterior predictive densities $p(\tilde{y} \mid y)$ for new data $\tilde{y}$, this can be expressed as an expectation,
 $$
 p(\tilde{y} \mid y) = \mathbb{E}[p(\tilde{y} \mid \theta) \mid y].
 $$
 
-Conditional expectation notation is just shorthand for a high-dimensional integral in our underlying probability space,
-$$
-\mathbb{E}[f(\theta) \mid y]
-= \int_{\mathbb{R}^D} f(\theta) \cdot p(\theta \mid y) \, \textrm{d}\theta.
-$$
+## Computation with Markov chain Monte Carlo methods
+
 We can reduce the high-dimensional integration problem to one of sampling from the posterior,
 $$
 \theta^{(m)} \sim p(\theta \mid y).
@@ -206,10 +217,9 @@ $$
 $$
 
 
-## Linear regression in Stan
+## Coding a linear regression in Stan
 
 Here's an example Stan program defining a linear regression, which we have placed into the file `linear-regression.stan`. 
-
 ```stan
 data {
   int<lower=0> N, N_new, P;
@@ -232,6 +242,8 @@ generated quantities {
   array[N_new] real y_new = normal_rng(alpha + x_new * beta, sigma);
 }
 ```
+
+Stan is very flexible.   For example, if `y` were binary data and we wanted to fit a logistic regression, `y` would be declared as `array[N] int<lower=0, upper=1>` and `normal()` would be replaced with `bernoulli_logit()` (and similarly for the generated quantities).
 
 To ease the transition to JAX, note that the distribution statements in the model block are just syntactic sugar for incrementing the log target density [@carpenter2017stan].  The model block could have been coded as follows to generate the same C++ code.
 
@@ -424,18 +436,18 @@ A Stan program translates almost line-for-line to a C++ class that implements al
 
 * *Functions block*: Each function in the functions block is translated to a C++ function that is templated flexibly enough to allow automatic differentiation.  Forward declarations are made to support recursive definitions.  The main limitation to Stan's functions is that they cannot cross blocks and they cannot introduce block-level variables such as data or parameters; a secondary limitation is that arguments must be real or integer based.  Thus it is not possible to define functions like the built-in ODE solvers that take functions as arguments.
 
-* *Data and transformed data blocks*:  Each data declaration in the data block is translated to an argument of the class constructor.  It thus behaves like the signature for the data ingestion function.  The transformed data block is executed after the data is read in as the model object is being constructed.  After the model object is constructed with the data, it remains immutable to allow safe multi-threaded application.
+* *Data and transformed data blocks*:  Each data declaration in the data block is translated to an argument of the class constructor.  The data block can only contain declarations, and thus behaves like the signature for the data ingestion function.  The transformed data block is executed after the data is read in as the model object is being constructed.  After the model object is constructed with the data, it remains immutable to allow safe multi-threaded application.
 
-* *Parameter and transformed parameter blocks*:  The log density function is defined for unconstrained inputs gathered into a vector.  The frist part of the function unpacks the entries of that vector, applies the constraining transform to define constrained variables locally, then adds the log Jacobian determinant to the Jacobian accumulator to adjust for the change-of-variables making up the constraint.  Transformed  parameters also define local variables.  Everything executes serially as coded in the Stan program.
+* *Parameter and transformed parameter blocks*:  The log density function is defined for unconstrained inputs gathered into a vector.  The first part of the function unpacks the entries of that vector, applies the constraining transform to define constrained variables locally, then adds the log Jacobian determinant to the Jacobian accumulator to adjust for the change-of-variables making up the constraint.  Transformed  parameters also define local variables.  Everything executes serially as coded in the Stan program.
 
-* *Model block*: The rest of the body of the log density function is the line-by-line translation of Stan's model block.  Each distribution and target increment statement increments the log density accumulator, which is returned as the value of the function.  Everything is templated generally enough and coded in the underlying math library to allow automatic differentiation.
+* *Model block*: The rest of the body of the log density function is the line-by-line translation of Stan's model block.  Each distribution and target increment statement increments the log density accumulator, which is returned as the value of the function.  Everything is templated generally enough and coded in the underlying math library to allow automatic differentiation;  the automatic differentiation code dominates the project in terms of size and presents the most challenges to developer recruitment because of its modern C++ architecture [@carpenter2015ad].
 
-* *Generated quantities block*: The generated quantities block translates to a function that maps the parameters and a random number generator to the variables of interest.  These are gathered by this function along with the parameters and transformed parameters to form vector output.  The names of all the parameters define the columns of output and output is on the constrained scale where the user and Stan program model block operate.
+* *Generated quantities block*: This block is motivated by the goal of providing efficient forward-simulated predictive inferences.  The generated quantities block translates to a function that maps the parameters and a random number generator to the variables of interest.  These are gathered by this function along with the parameters and transformed parameters to form vector output.  The names of all the parameters define the columns of output and output is on the constrained scale where the user and Stan program model block operate.
 
 
-### The compiled C++ class
+### The transpiled C++ class
 
-The C++ class generated for the model has the following signatures, which have been simplified to remove debugging traces, template traits restrictions, and some fine-grained control parameters.  This is the same interface as is exposed by BridgeStan in Python, R, Julia, C, and Rust [@roualdes2023bridgestan].
+Stan programs are transpiled to C++, and then the C++ is compiled down to machine instructions.  The C++ class generated for the model has the following signatures, which have been simplified to remove debugging traces, template traits restrictions, and some fine-grained control parameters.  This is the same interface as is exposed by BridgeStan in Python, R, Julia, C, and Rust [@roualdes2023bridgestan].
 
 ```cpp
 namespace lr_model_namespace {
@@ -476,7 +488,7 @@ model_base& new_model(var_context& c, int seed, ostream* msgs);
 
 The data variables are specified in the `data` block in the Stan program.  Here, we have the sizes, the covariate matrices (`x` plus `x_new` for posterior prediction), and the outcomes (`y`).  The constructed C++ class is immutable and provides several methods, the most central of which is an unconstrained (in the sense of having support over all of $\mathbb{R}^D$) log density function that is templated in order to support automatic differentiation [@carpenter2015ad].  In math, the constraining transform maps $(\alpha, \beta, \sigma^\text{u})$ to $(\alpha, \beta, \exp(\sigma^\text{u}))$.  The transforms are independent and the first two are the identity, so the Jacobian determinant works out to $\exp(\sigma^\text{u})$.  Thus the additive change-of-variables adjustment on the log scale is just $\log \exp(\sigma^\text{u}) = \sigma^\text{u}$.
 
-The model block defines a density function $p()$ over constrained parameters---this is typically derived and coded to implement the unnormalized posterior log density of a Bayesian model.  Densities are read elementwise, with scalar arguments being broadcast where necessary.  With this translation, the unnormalized log posterior over the constrained variables defined by the Stan program's model block is
+The model block defines a density function $p$ over constrained parameters.  Although Stan can be used to sample from any density, it is typically used to code the unnormalized posterior log density of a Bayesian mode.  Densities are read elementwise, with scalar arguments being broadcast where necessary.  With this translation, the unnormalized log posterior over the constrained variables defined by the Stan program's model block is
 $$
 \log p(\alpha, \beta, \sigma \mid x, y)
  =  \log \textrm{normal}(\alpha \mid 0, 5)
@@ -484,13 +496,13 @@ $$
  +  \log \textrm{gamma}(\sigma \mid 0.5) 
  +  \sum_{n=1}^N \textrm{normal}(y_n \mid \alpha + \beta \cdot x_n, \sigma).
 $$
-The corresponding unconstrained log density $q()$ over which inference is performed, adds the log Jacobian adjustment for the change of variables,
+The corresponding unconstrained log density over which inference is performed, adds the log Jacobian adjustment for the change of variables,
 $$
-\log q(\alpha, \beta, \sigma^\text{u} \mid x, y)
+\log p(\alpha, \beta, \sigma^\text{u} \mid x, y)
 = \log p(\alpha, \beta, \exp(\sigma^\text{u}) \mid x, y) + \sigma^\text{u}.
 $$
 
-The C++ implementing the log density function performs the following sequence of operations, which directly follows the Stan program.  The typing, logging, debugging traces, message I/O, and name mangling have all been simplified.  
+The transpiled C++ code implementing the log density function performs the following sequence of operations, which directly follows the Stan program.  The typing, logging, debugging traces, message I/O, and name mangling have all been simplified.  
 
 ```cpp
 template <bool propto, bool jacobian, typename T>
@@ -517,7 +529,7 @@ inline auto log_prob(Vector<T>& params) const {
 
 The `read` methods of the deserializer read the next variable fromn the sequence of parameters, perform any necessary constraining transform and add any Jacobian adjustment to `lp`, controlled by the flag `jacobian`.  Arithmetic in the Stan program is replaced with overloaded internal library calls `add` and `multiply` which can handle vectors and scalars.  There is implicit broadcasting and internal summation in the `normal_lpdf` log density function.  When applied to a vector like `beta` or `y`, it sums the log densities of the components, broadcasting any scalar arguments as necessary.  The accumulator collects terms and then its method `sum` returns a flattened autodiff tree with a single root pointing to all the terms with implicit unit derivatives.
 
-To support the changes of variables for reporting constrained output, the compiled C++ code exposes the constraining transform and its Jacobians. For initialization from constrained parameters, there is a matching unconstraining transform.  The model class also supplies methods for determining the shape and names of the constrained and unconstrained parameters.  
+To support the changes of variables for reporting constrained output, the compiled C++ code exposes the constraining transform and its Jacobians. For initialization from constrained parameters, there is a matching unconstraining transform.  The model class also supplies methods for determining the shape and names of the constrained and unconstrained parameters.
 
 The final component of a compiled Stan model is a function to perform predictive inference as defined by the generated quantities block (this can also be done post-hoc with a new program and generated quantities block).  In particular, the model compiles a generated quantities function that takes a random number generator and produces the output defined in the generated quantities block purely by forward sampling without the need for any automatic differentiation.
 
@@ -560,9 +572,9 @@ def linear_regression(x, y, x_new):
 
 The resulting `model` object mirrors the C++ object produced by Stan and also the model object produced by BridgeStan [@roualdes2023bridgestan].  Because these simple functions generate fully JAX-embedded code, the log density function can be automatically differentiated and all of the functions can be just-in-time compiled.
 
-can compute log densities and their gradients, as well as transform parameters from the constrained to the unconstrained scale.  The parameter declarations with constraints, such as `positive`.  That allows it to be used for inference by `blackjax`, which has ported NUTS and ADVI from Stan into JAX and much much more.
+The parameter declarations with constraints, such as `positive`.  That allows it to be used for inference by `blackjax`, which has ported NUTS and ADVI from Stan into JAX and much much more.
 
-In Python, the `arviz` package [@kumar2019arviz] provides extensive posterior analysis including means, standard deviations, quantiles, covariances, rank-normalized $\widehat{R}$-statistics for convergence monitoring, effective sample sizes, and estimator standard errors [@vehtari2021rank], as well as efficient approximate leave-one-out cross-validation for model comparison [@vehtari2017practical].
+
 
 
 # Appendix:  Generated Stan C++ code
