@@ -30,7 +30,7 @@ The second obstacle to using Stan is the need to learn a second language. While 
 
 * Stan is indexed from 1, like much of mathematics and in particular, linear algebra, whereas Python is indexed from 0, like most programming languages.  Translating between 0-based and 1-based indexing is tedious, error-prone, and obfuscates code.
 * Stan is strongly typed and statically compiled, which has the benefit of being type-safe at run time and leads to fast C++ computation.  The downside is that this kind of static typing is unfamiliar to most of Stan's intended users.  Stan's typing can be an annoyance and performance bottleneck even for experienced programmers due to its poor representational choice for containers that mixes C++ standard vectors [@josuttis2012cpp] for arrays and Eigen matrices [@guennebaud2010eigen] for linear algebra (this may sound harsh, but it was our fault as the original developers of Stan).
-* Stan requires a scripting language like R, Python, and Julia, in which to run rather than providing a seamless single-language experience.  The interface between these languages and Stan is minimal---Stan is just being called as a black box to return samples.
+* Stan requires a scripting language like R, Python, and Julia, to combine modeling with data preparation and posterior analysis, rather than providing a seamless single-language experience.  The interface between these languages and Stan is minimal---Stan is just being called as a black box to return samples.
 * There is relatively little tooling to aid with Stan development.  Currently, it's just autocomplete, syntax highlighting, and debug-by-print.  Python, in contrast, has several well supported integrated development environments with tooling for debugging, generating notebooks, integration with chatbots, integration with documentation, automatic refactoring tools, etc.
 * While there is a great deal of tutorial and onboarding material for Stan, it has to split its attention among several interfaces (two interfaces in R and Python and one in Julia).  Taken together, even Stan's extensive documentation is dwarfed by the pedagogical material around scientific, differentiable, and probabilistic computing in Python.  
 
@@ -53,7 +53,7 @@ Stan has an extensive library of special mathematical and statistical functions,
 
 * *Matrix library*:  This is JAX's main focus and it far exceeds Stan's collection of familiar matrix functions and reshaping tools by punning NumPy ([`jax.numpy`](https://docs.jax.dev/en/latest/jax.numpy.html)) and SciPy ([`jax.scipy`](https://docs.jax.dev/en/latest/jax.scipy.html)).  There is even limited (and experimental) support for sparse matrices and solvers natively ([`jax.experimental.sparse`](https://docs.jax.dev/en/latest/jax.experimental.sparse.html)).
 
-* *Special functions*:  These are available all over the JAX ecosystem, including in JAX's NumPy and SciPy modules.  The differentiable SciPy module is not complete compared to SciPy.  The deficit is more than made up by the special function library provided by TensorFlow Probability (TFP) ([`jax.scipy.special`](https://docs.jax.dev/en/latest/jax.scipy.html#module-jax.scipy.special)) and maintained by Google.  For example, the Lambert W function available in Stan has not been ported from SciPy but is available through TFP.  The bottom line is that JAX provides a *better* selection of well supported special functions.
+* *Special functions*:  These are available all over the JAX ecosystem, including in JAX's NumPy and SciPy modules.  The differentiable SciPy module ([`jax.scipy.special`](https://docs.jax.dev/en/latest/jax.scipy.html#module-jax.scipy.special)) is not complete compared to SciPy.  The deficit is more than made up by the special function library provided by TensorFlow Probability (TFP) ([`tfp.math`](https://www.tensorflow.org/probability/api_docs/python/tfp/math)) and maintained by Google.  For example, the Lambert W function available in Stan has not been ported from SciPy but is available through TFP.  The bottom line is that JAX provides a *better* selection of well supported special functions.
 
 * *Probability distributions*:  Stan implements dozens of probability distributions, including almost most (but not all) of the ones in common use for statistical models.  While the basics are available through JAX's NumPy and SciPy modules (often redundantly), the go-to library TFP ([`tfp.probability`](https://www.tensorflow.org/probability?hl=en)) for probability-related functions (e.g., probability density functions, probability mass functions, and cumulative distribution functions).  In some cases, there are also quantile functions, which are poorly supported in Stan.  The bottom line is that the native Google-supported *JAX* ecosystem provides a *better* selection of well supported probability functions and random number generators.  There is even wider support beyond native JAX and TensorFlow, including the probabilistic programming language NumPyro [@phan2019composable] and Google DeepMind's library Distrax [@deepmind2020jax].
 
@@ -80,7 +80,7 @@ Stan has an extensive library of special mathematical and statistical functions,
 
 
 
-Other than the omission of 1D integration and the backward pass of the forward-backward algorithm, the special function and probability distribution and transform libraries of JAX are *better* than those supplied by Stan.  When it comes to even more complicated functions like PDE and SDE solvers and neural networks, Stan isn't even in the game.  The JAX-based PPL NumPyro can also make use of these JAX packages in many cases, especially if users are willing to forego its underlying graphical model abstraction.
+Other than the omission of 1D integration and the backward pass of the forward-backward algorithm, the special function and probability distribution and transform libraries of JAX are *better* than those supplied by Stan, with the caveat that users may need to search multiple places to find what they are looking for in more specialized cases.  When it comes to even more complicated functions like PDE and SDE solvers and neural networks, Stan isn't even in the game.  The JAX-based PPL NumPyro can also make use of these JAX packages in many cases, especially if users are willing to forego its underlying graphical model abstraction.
 
 
 ## Constrained parameter support in JAX
@@ -436,9 +436,9 @@ A Stan program translates almost line-for-line to a C++ class that implements al
 
 ## Stan's block structure
 
-* *Functions block*: Each function in the functions block is translated to a C++ function that is templated flexibly enough to allow automatic differentiation.  Forward declarations are made to support recursive definitions.  The main limitation to Stan's functions is that they cannot cross blocks and they cannot introduce block-level variables such as data or parameters; a secondary limitation is that arguments must be real or integer based.  Thus it is not possible to define functions like the built-in ODE solvers that take functions as arguments.
+* *Functions block*: Each function in the functions block is translated to a C++ function that is templated flexibly enough to allow automatic differentiation.   The main limitation to Stan's functions is that they cannot cross blocks and they cannot introduce block-level variables such as data or parameters; a secondary limitation is that arguments must be real or integer based.  Thus it is not possible to define functions like the built-in ODE solvers that take functions as arguments.
 
-* *Data and transformed data blocks*:  Each data declaration in the data block is translated to an argument of the class constructor.  The data block can only contain declarations, and thus behaves like the signature for the data ingestion function.  The transformed data block is executed after the data is read in as the model object is being constructed.  After the model object is constructed with the data, it remains immutable to allow safe multi-threaded application.
+* *Data and transformed data blocks*:  Each data declaration in the data block is translated to an instance variable of the generated class.  The data block can only contain declarations, and thus behaves like the signature for the data ingestion function.  The transformed data block is executed after the data is read in as the model object is being constructed.  After the model object is constructed with the data, it remains immutable to allow safe multi-threaded application.
 
 * *Parameter and transformed parameter blocks*:  The log density function is defined for unconstrained inputs gathered into a vector.  The first part of the function unpacks the entries of that vector, applies the constraining transform to define constrained variables locally, then adds the log Jacobian determinant to the Jacobian accumulator to adjust for the change-of-variables making up the constraint.  Transformed  parameters also define local variables.  Everything executes serially as coded in the Stan program.
 
@@ -459,7 +459,7 @@ class lr_model : model_base<lr_model> {
   int N, N_new, P;    MatrixXd x;
   VectorXd y;         MatrixXd x_new;
 
-  // read data from c, compute generated quantities
+  // read data from c, compute transformed data
   linear_regression_model(var_context& c, int seed,
                           ostream* msgs);
 
@@ -549,6 +549,10 @@ Here's a definition of our linear regression model in JAX.  The naming should ma
 import jax.numpy as jnp
 from jax.scipy import stats
 
+# data omitted (jnp.arrays)
+x = ... 
+y = ... 
+
 # constrained; closes over data x, y
 def log_joint(alpha, beta, sigma):
     lp = 0
@@ -578,15 +582,16 @@ def log_prob(alpha, beta, sigma_unc):
 There are a few differences from Stan and its C++.
 
 1.  There are no data declarations.  The function `log_joint` closes over the data variables `x` and `y` (i.e., it reads them from the environment where it was defined); we will shortly show how to abstract this into a function.
-2.  JAX does not require parameters to be serialized. With the wizardry of PyTree, the Blackjax sampling package can work directly with the `log_prob` function without any need for serialization of the parameters into an array.  If serialized log density functions are needed elsewhere, they are convertible with a single function call as we show below.
+2.  JAX does not require parameters to be serialized. With the wizardry of PyTree, the Blackjax and many JAX-based packages can work directly with the `log_prob` function without any need for serialization of the parameters into a flattened array.  If serialized log density functions _are_ needed elsewhere, they are convertible with a single function call as we show below.
 3.  There is no need to work with accumulators---JAX's just-in-time compilation is sufficient to optimize sequeces of operations at the XLA substrate to which JAX is compiled.
 4.  The `log_joint` function where the user defines a model is defined over constrained parameters, whereas the `log_prob` function is defined over unconstrained parameters; this mirrors Stan directly rather than its compiled C++ code, which does not define the joint density as a function.
+5.  As presented above, there is not any 'generated quantities'-like behavior. One advantage of coding the model in a consistent language like Python is that these forward sampling functions are more or less the same as any other function of the draws, and can be written later than (or indeed, entirely separately from) the log density.  That being said, we will show how a user who wants to give special place to some 'generated quantities' behavior in their workflow can do so in the following sections.
 
 Because it is just Python code, we could break the JAX model code down into calls to a log prior and log likelihood function.  Here, we have stuck to the Stan coding conventions to help make the translation clearer.  Other parts of the code may also be broken out into function calls.  There is no need for a separate block to declare functions---plain old Python functions can be used to evaluate JAX calls.
 
 The `log_joint` function corresponds to the Stan model block and is defined over constrained parameters. The `log_prob` function, on the other hand, is defined for unconstrained parameters, as in the compiled C++ code for a Stan program.  Like in the Stan `log_prob` function in C++, the `log_prob` function here first transforms unconstrained parameters to constrained and collects their Jacobians.  Then it calls the code that matches the Stan model block, i.e., `log_joint`.  The return is just the log Jacobian plus log joint density, just as in Stan.  In the call from `log_prob`, `sigma` will be positive by construction.
 
-Aside form the verbosity of all the namespace qualifiers and the need for all the intermediate calls to `sum`, the biggest obstacle to writing code this way is having to manually deal with the constraining and unconstraining transform.
+Aside from the verbosity of all the namespace qualifiers and the need for all the intermediate calls to `sum`, the biggest obstacle to writing code this way is having to manually deal with the constraining and unconstraining transform.
 
 
 ## Linear regression in JAX with `densejax`
