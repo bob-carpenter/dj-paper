@@ -108,7 +108,7 @@ A Bayesian model is nothing more than a joint distribution over parameters $\the
 
 Bayesian inference involves visualizing and summarizing quantities of interest in the posterior and posterior predictive distributions.  For summaries, we are typically interested in either posterior averages or posterior quantiles of a function of the parameters.  Quantiles are typically used to give us medians and uncertainty intervals, while averages give us everything else. By averaging estimates of quantities of interest derived from parameters weighted by posterior density, we can account for estimation uncertainty into account in our inferences. 
 
-Averages over the posterior density are most naturally expressed using expectation notation.  Given a random variable $\Theta \in \mathbb{R}^D$ representing knowledge about the paraemters, the expectation of a function $f:\mathbb{R}^D \rightarrow \mathbb{R}$ is given by
+Averages over the posterior density are most naturally expressed using expectation notation.  Given a random variable $\Theta \in \mathbb{R}^D$ representing knowledge about the parameters, the expectation of a function $f:\mathbb{R}^D \rightarrow \mathbb{R}$ is given by
 $$
 \mathbb{E}[f(\Theta) \mid y]
 = \int_{\mathbb{R}^D} f(\theta) \cdot p(\theta \mid y) \, \textrm{d}\theta.
@@ -156,7 +156,7 @@ If the Markov chain is well behaved (e.g., it's geometrically ergodic), then the
 
 ## Unconstrained parameterizations
 
-It is much easier to define a sampling algorithm for situations where the posterior has support over all of $\mathbb{R}^D$, i.e., for all $\theta \in \mathbb{R}^D$, $p(\theta \mid y) > 0$.  Stan and other PPLs transform any unconstrained parameters to be unconstrained.  Then in practice, the unconstrained parameters are inverse transformed to satisfy their constraints.  This requires an adjustment for the change of variables, which happens implicitly in PPLs.  Stan requires all parameter constraints to be declared; the graphical modeling sublanguage of PyMC and NumPyro infer these constraints from the distributions in which variables participate (e.g., if a variable is given a Wishart distribution, it must be a symmetric and positive definite matrix).
+It is much easier to define a sampling algorithm for situations where the posterior has support over all of $\mathbb{R}^D$, i.e., for all $\theta \in \mathbb{R}^D$, $p(\theta \mid y) > 0$.  Stan and other PPLs transform any constrained parameters to be unconstrained.  Then in practice, the unconstrained parameters are inverse transformed to satisfy their constraints.  This requires an adjustment for the change of variables, which happens implicitly in PPLs.  Stan requires all parameter constraints to be declared; the graphical modeling sublanguage of PyMC and NumPyro infer these constraints from the distributions in which variables participate (e.g., if a variable is given a Wishart distribution, it must be a symmetric and positive definite matrix).
 
 Mathematically, given a constrained random variable $\Theta \in C \subseteq \mathbb{R}^D$, with a density $p_\Theta(\theta)$, and a smooth bijection $f:C \rightarrow \mathbb{R}^N$, we can derive the density of $\Phi = f(\Theta)$ as
 $$
@@ -175,7 +175,7 @@ To ground the discussion, let's consider the concrete example of coding a linear
 
 ## A multivariate linear regression model
 
-We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are unit scale so that we can assume a weakly informative prior independently over our paraemters,
+We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are unit scale so that we can assume a weakly informative prior independently over our parameters,
 $$
 \alpha \sim \textrm{normal}(0, 5)
 \qquad
