@@ -579,7 +579,7 @@ def log_prob(alpha, beta, sigma_unc):
     return lp_jacobian + lp_joint
 ```
 
-There are a few differences from Stan and its C++.
+There are a few differences between Stan and its C++.
 
 1.  There are no data declarations.  The function `log_joint` closes over the data variables `x` and `y` (i.e., it reads them from the environment where it was defined); we will shortly show how to abstract this into a function.
 2.  JAX does not require parameters to be serialized. With the wizardry of PyTree, the Blackjax and many JAX-based packages can work directly with the `log_prob` function without any need for serialization of the parameters into a flattened array.  If serialized log density functions _are_ needed elsewhere, they are convertible with a single function call as we show below.
