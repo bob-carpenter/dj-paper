@@ -302,7 +302,7 @@ It's always a good idea to plot your data when possible.  We provide a plot of t
 
 ```{python python-code}
 #| code-fold: true
-#| fig-cap: "*A heatmap plot of `y = alpha + x @ beta` vs. `x` over 4 marginal standard deviations. The horizontal axes show the covariates `x` and the color represents $y$.*"
+#| fig-cap: "*A heatmap plot of `y = alpha + x @ beta` vs. `x` over 4 marginal standard deviations. The horizontal axes show the covariates `x` and the color represents `y`. *"
 #| label: fig-sim-expected-y
 
 import pandas as pd
@@ -333,7 +333,7 @@ plot_expected_y.show()
 
 ```{python python-code}
 #| code-fold: true
-#| fig-cap: "*Observed values of $x$ in the simulation.*"
+#| fig-cap: "*Observed values of `x` in the simulation.*"
 #| label: fig-sim-observed-x
 
 x = np.asarray(data["x"], dtype=float)
