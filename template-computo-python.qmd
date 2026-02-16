@@ -138,23 +138,43 @@ p(\tilde{y} \mid y) = \mathbb{E}[p(\tilde{y} \mid \theta) \mid y].
 $$
 
 ## Computation with Markov chain Monte Carlo methods
-
 We can reduce the high-dimensional integration problem to one of sampling from the posterior,
 $$
 \theta^{(m)} \sim p(\theta \mid y).
 $$
-Given modest assumptions to ensure ergodicity [@roberts2004mcmc], the Monte Carlo estimate converges to the true value,
+Given independent, identically distributed (i.i.d.) Monte Carlo draws, the Monte Carlo estimator
 $$
-\mathbb{E}[f(\theta) \mid y]
-= \lim_{M \rightarrow \infty} \
-  \frac{1}{M} \sum_{m < M} f(\theta^{(m)}).
+\widehat{I}_M \;\;=\;\; \frac{1}{M}\sum_{m=1}^{M} f(\theta^{(m)})
 $$
-In practice, we use a finite approximation for a fixed $M$,
+converges almost surely to the true posterior expectation $\mathbb{E}[f(\Theta)\mid y]$ by the strong law of large numbers. Moreover, if $\textrm{var}[f(\Theta)\mid y] < \infty$, then a central limit theorem implies the asymptotic normal approximation
 $$
-\mathbb{E}[f(\theta) \mid y]
-\approx  \frac{1}{M} \sum_{m < M} f(\theta^{(m)}).
+\sqrt{M}\Big(\widehat{I}_M - \mathbb{E}[f(\Theta)\mid y]\Big)
+\;\xrightarrow[]{\;\;d\;\;}\;
+\mathcal{N}\!\left(0,\;\textrm{var}[f(\Theta)\mid y]\right),
 $$
-If the Markov chain is well behaved (e.g., it's geometrically ergodic), then the Markov chain central limit theorem will hold, and the Monte Carlo estimate will converge to the true value at a rate of $\mathcal{O}(1 / \sqrt{M})$ [@roberts2004mcmc].
+which justifies the familiar $\mathcal{O}(1/\sqrt{M})$ Monte Carlo error rate and standard-error estimates for averages. Finite-sample concentration bounds are also hold under additional regularity assumptions (e.g., boundedness or sub-exponential tails of $f(\Theta)$), giving us explicit deviation probabilities for $\widehat{I}_M$ around $\mathbb{E}[f(\Theta)\mid y]$ [@gelman2013bda; @paulin2015concentration].
+
+In practice, exact i.i.d. draws from $p(\theta\mid y)$ are rarely available. Fortunately, many weaker sampling schemes still yield consistent estimators of posterior expectations. These include rejection sampling and importance sampling (which produce weighted estimators), sequential Monte Carlo (which propagates and reweights a particle population), and Markov chain Monte Carlo (which constructs a dependent sequence whose stationary distribution is the posterior) [@gelman2013bda; @doucet2001introduction; @roberts2004mcmc].
+
+The idea of Markov chain Monte Carlo (MCMC) is that *correlated* draws from an ergodic Markov chain with invariant distribution $p(\theta\mid y)$ can still be used in the same sample-average estimator $\widehat{I}_M$. Under standard conditions (e.g., Harris ergodicity) that are easily satisfied in practical applications, the Markov chain ergodic theorem guarantees $\widehat{I}_M \to \mathbb{E}[f(\Theta)\mid y]$ even though the draws are dependent [@roberts2004mcmc].
+
+When the chain is particularly well behaved (e.g., geometrically ergodic with suitable moment conditions) a Markov chain central limit theorem holds:
+$$
+\sqrt{M}\Big(\widehat{I}_M - \mathbb{E}[f(\Theta)\mid y]\Big)
+\;\xrightarrow[]{\;\;d\;\;}\;
+\mathcal{N}\!\left(0,\;\sigma_f^2\right),
+$$
+with asymptotic variance
+$$
+\sigma_f^2
+= \textrm{var}_\pi\!\big(f(\Theta)\big)
+  + 2\sum_{k=1}^{\infty}\textrm{cov}_\pi\!\big(f(\Theta_0), f(\Theta_k)\big),
+$$
+where $\pi(\cdot)=p(\cdot\mid y)$ and $\{\Theta_k\}$ denotes the stationary chain. Equivalently, $\sigma_f^2=\textrm{var}_\pi(f)\,\tau_\text{int}$, where $\tau_\text{int}=1+2\sum_{k\ge 1}\rho_k$ is the integrated autocorrelation time, motivating the usual definition of an effective sample size $M_\text{eff}=M/\tau_\text{int}$ and the heuristic ``$\mathcal{O}(1/\sqrt{M_\text{eff}})$'' error rate [@roberts2004mcmc; @vehtari2021rank].
+Under similarly strong assumptions (e.g., uniform or geometric ergodicity, or a spectral-gap condition), one can also obtain non-asymptotic deviation bounds and Bernstein-/Hoeffding-type concentration inequalities for Markov chain averages [@paulin2015concentration]. 
+
+Unfortunately, these strong conditions needed for MCMC central limit theorems and concentrations bounds are typically difficult to verify for the complex MCMC methods and posteriors encountered in modern Bayesian inference over continuous parameter spaces [@roberts2004mcmc]. Even so, MCMC, especially modern gradient-based variants, has shown remarkable empirical success in applied Bayesian inference, with practical reliability assessed via convergence diagnostics, effective sample sizes, and predictive checks rather than direct verification of theoretical assumptions [@gelman2020workflow; @vehtari2021rank].
+
 
 ## Unconstrained parameterizations
 
