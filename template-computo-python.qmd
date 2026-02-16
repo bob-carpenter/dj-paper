@@ -167,11 +167,10 @@ $$
 with asymptotic variance
 $$
 \sigma_f^2
-= \textrm{var}_\pi\!\big(f(\Theta)\big)
-  + 2\sum_{k=1}^{\infty}\textrm{cov}_\pi\!\big(f(\Theta_0), f(\Theta_k)\big),
+= \textrm{var}_\pi(f(\Theta)) \tau_\text{int},
 $$
-where $\pi(\cdot)=p(\cdot\mid y)$ and $\{\Theta_k\}$ denotes the stationary chain. Equivalently, $\sigma_f^2=\textrm{var}_\pi(f)\,\tau_\text{int}$, where $\tau_\text{int}=1+2\sum_{k\ge 1}\rho_k$ is the integrated autocorrelation time, motivating the usual definition of an effective sample size $M_\text{eff}=M/\tau_\text{int}$ and the heuristic ``$\mathcal{O}(1/\sqrt{M_\text{eff}})$'' error rate [@roberts2004mcmc; @vehtari2021rank].
-Under similarly strong assumptions (e.g., uniform or geometric ergodicity, or a spectral-gap condition), one can also obtain non-asymptotic deviation bounds and Bernstein-/Hoeffding-type concentration inequalities for Markov chain averages [@paulin2015concentration]. 
+where $\pi(\cdot)=p(\cdot\mid y)$, $\tau_\text{int}=1+2\sum_{k\ge 1}\textrm{corr}_\pi\!\big(f(\Theta_0), f(\Theta_k)\big)$ and $\{\Theta_k\}$ denotes the stationary chain. This formula for the variance motivates the usual definition of the effective sample size $M_\text{eff}=M/\tau_\text{int}$ and the heuristic $\mathcal{O}(1/\sqrt{M_\text{eff}})$ error rate [@roberts2004mcmc; @vehtari2021rank].
+Under similarly strong assumptions (e.g., uniform or geometric ergodicity, or a spectral-gap condition), one can also obtain non-asymptotic deviation bounds and Bernstein/Hoeffding-type concentration inequalities for Markov chain averages [@paulin2015concentration]. 
 
 Unfortunately, these strong conditions needed for MCMC central limit theorems and concentrations bounds are typically difficult to verify for the complex MCMC methods and posteriors encountered in modern Bayesian inference over continuous parameter spaces [@roberts2004mcmc]. Even so, MCMC, especially modern gradient-based variants, has shown remarkable empirical success in applied Bayesian inference, with practical reliability assessed via convergence diagnostics, effective sample sizes, and predictive checks rather than direct verification of theoretical assumptions [@gelman2020workflow; @vehtari2021rank].
 
