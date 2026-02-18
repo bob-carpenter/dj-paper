@@ -43,7 +43,7 @@ PyMC [@salvatier2016probabilistic] and NumPyro [@phan2019composable] are Python 
 
 Like Stan, all of the modern PPLs efficiently scale in dimension by using gradient-based inference methods.  Like BUGS, they are able to exploit the graphical model structure directly to automate a number of functions that are painful to code in Stan and will largely remain painful to code in what we are proposing here, such as prior and posterior predictive checks and simulation-based calibration, and at least in the case of PyMC, general patterns of missing data.
 
-When models get more complicated in terms of novel parameter constraints, densities, conditional structures, etc., both PyMC and NumPyro provide escape hatches to let you define transformations and log densities directly in the same way as Stan. This feels dirty in the same way as using "ones-trick" in BUGS [@lunn2012bugs]. And while it is great for allowing general models to be defined, it defeats all the benefits of having a clean generative graphical model in the first place.  At the point models start getting more complicated, we believe it is more straightforward to code the models directly in JAX rather than working around the graphical modeling paradigm of PyMC or NumPyro.
+When models get more complicated in terms of novel parameter constraints, densities, conditional structures, etc., both PyMC and NumPyro provide escape hatches to let you define transformations and log densities directly in the same way as Stan. This feels dirty in the same way as using the "ones-trick" in BUGS [@lunn2012bugs]. And while it is great for allowing general models to be defined, it defeats all the benefits of having a clean generative graphical model in the first place.  At the point models start getting more complicated, we believe it is more straightforward to code the models directly in JAX rather than working around the graphical modeling paradigm of PyMC or NumPyro.
 
 A second reason to prefer the approach we are presenting here is that it is much more direct.  By that, we mean that like Stan, the resulting code is implemented transparently in an imperative fashion rather than indirectly through the structure of the directed acyclic graph.
 
@@ -55,7 +55,8 @@ Stan has an extensive library of special mathematical and statistical functions,
 
 * *Special functions*:  These are available all over the JAX ecosystem, including in JAX's NumPy and SciPy modules.  The differentiable SciPy module ([`jax.scipy.special`](https://docs.jax.dev/en/latest/jax.scipy.html#module-jax.scipy.special)) is not complete compared to SciPy.  The deficit is more than made up by the special function library provided by TensorFlow Probability (TFP) ([`tfp.math`](https://www.tensorflow.org/probability/api_docs/python/tfp/math)) and maintained by Google.  For example, the Lambert W function available in Stan has not been ported from SciPy but is available through TFP.  The bottom line is that JAX provides a *better* selection of well supported special functions.
 
-* *Probability distributions*:  Stan implements dozens of probability distributions, including almost most (but not all) of the ones in common use for statistical models.  While the basics are available through JAX's NumPy and SciPy modules (often redundantly), the go-to library TFP ([`tfp.probability`](https://www.tensorflow.org/probability?hl=en)) for probability-related functions (e.g., probability density functions, probability mass functions, and cumulative distribution functions).  In some cases, there are also quantile functions, which are poorly supported in Stan.  The bottom line is that the native Google-supported *JAX* ecosystem provides a *better* selection of well supported probability functions and random number generators.  There is even wider support beyond native JAX and TensorFlow, including the probabilistic programming language NumPyro [@phan2019composable] and Google DeepMind's library Distrax [@deepmind2020jax].
+* *Probability distributions*:  Stan implements dozens of probability distributions, including most (but not all) of the ones in common use for statistical models.  While the basics are available through JAX's NumPy and SciPy modules (often redundantly), the go-to library is TensorFlow Probability (TFP) (e.g., [`tfp.distributions`](https://www.tensorflow.org/probability/api_docs/python/tfp/distributions); for JAX specifically, `tfp.substrates.jax.distributions`) for probability-related functions (e.g., probability density functions, probability mass functions, and cumulative distribution functions).  In some cases, there are also quantile functions, which are poorly supported in Stan.  The bottom line is that the native Google-supported *JAX* ecosystem provides a *better* selection of well supported probability functions and random number generators.  There is even wider support beyond native JAX and TensorFlow, including the probabilistic programming language NumPyro [@phan2019composable] and Google DeepMind's library Distrax [@deepmind2020jax].
+
 
 * *Complex-valued functions*: JAX and Stan both have core library support for complex-valued functions built-in, including fast Fourier transforms and complex matrix operations.
 
@@ -68,26 +69,27 @@ Stan has an extensive library of special mathematical and statistical functions,
 
     * *Root finders*:  There is no built-in support in JAX for root finders, but the JAXOpt package [@blondel2021jaxopt] is maintained by Google and provides a range of solvers including the Newton method used by Stan.
 
-    * *1D Integration*: These functions are useful for defining cumulative distribution functions for novel densities. There is no built-in or widely used external support for 1D integration in JAX at the moment. This is the only problem for which Stan has a solution, but JAX has none.
+    * *1D Integration*: These functions are useful for defining cumulative distribution functions for novel densities. JAX does not ship an adaptive 1D quadrature routine in core, but external libraries such as [`quadax`](https://github.com/f0uriest/quadax) provide `jit`/`vmap`-able, differentiable adaptive quadrature (e.g., Gauss–Kronrod-style `quadgk`).
+
+    * *Hidden Markov models*:  TFP (through [`tfp.distributions.HiddenMarkovModel`](https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/HiddenMarkovModel?hl=en)) supports likelihood evaluation (forward algorithm) and computation of latent-state marginals (a form of the forward–backward algorithm, e.g. `posterior_marginals`). Stan provides analogous built-ins (`hmm_marginal` for the marginal likelihood and `hmm_hidden_state_prob` for marginal latent state probabilities).
     
-    * *Hidden Markov models*:  TFP (through [`tfp.distributions.HiddenMarkovModel`](https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/HiddenMarkovModel?hl=en)) provides support for the forward algorithm to compute the distribution of outcomes given parameters (i.e., implement a likelihood function). This is enough to fit models out of the box, but it is not as efficient as the full forward-backward algorithm in Stan.
-    
-    * *Kalman filters*:  There is no direct support in Stan; there is experimental support in TFP (in [`tfp.experimental.parallel_filter.kalman_filter`](https://www.tensorflow.org/probability/api_docs/python/tfp/experimental/parallel_filter/kalman_filter?hl=en)).
+    * *Kalman filters*:  Stan has direct support for Gaussian dynamic linear model likelihoods computed via the Kalman filter (e.g., `gaussian_dlm_obs_lpdf` and related functions). There is also experimental support in TFP (in [`tfp.experimental.parallel_filter.kalman_filter`](https://www.tensorflow.org/probability/api_docs/python/tfp/experimental/parallel_filter/kalman_filter?hl=en)).
     
     * *Partial differential equation (PDE) solvers*:   Stan has no support for partial differential equations.  The JAX-CFD package [@kochkov2021cfd] from Google, mostly focused on fluid dynamics, includes a number of general-purpose PDE solvers, including finite volume/difference methods, pseudospectral methods, and machine-learning methods.  It supports Navier-Stokes, advection-diffusion, period and wall boundary conditions, and runs on GPU and TPU with gradients.
 
     * *Stochastic differential equation (SDE) solvers*:  Stan has no support for stochastic differential equations. The Diffrax package [@kidger2021on], in addition to providing stiff ODE solvers, also supports traditional SDE and SPDE solvers (Eueler-Maruyama, Milstein, Stratonovich/Itô) through spatial discretization.
 
 
-
-Other than the omission of 1D integration and the backward pass of the forward-backward algorithm, the special function and probability distribution and transform libraries of JAX are *better* than those supplied by Stan, with the caveat that users may need to search multiple places to find what they are looking for in more specialized cases.  When it comes to even more complicated functions like PDE and SDE solvers and neural networks, Stan isn't even in the game.  The JAX-based PPL NumPyro can also make use of these JAX packages in many cases, especially if users are willing to forego its underlying graphical model abstraction.
+With the caveat that functionality is spread across multiple libraries (core JAX, TFP, and smaller add-ons such as `quadax` for adaptive quadrature), the special function, probability distribution, and transform coverage available in the JAX ecosystem is broadly comparable to Stan's, and in some areas deeper.  When it comes to even more complicated functions like PDE and SDE solvers and neural networks, Stan isn't even in the game.  The JAX-based PPL NumPyro can also make use of these JAX packages in many cases, especially if users are willing to forego its underlying graphical model abstraction.
 
 
 ## Constrained parameter support in JAX
 
-Stan provides built-in transforms for constrained parameters to provide densities with support over all of $\mathbb{R}^D$, along with the corresponding change-of-variables adjustments.  These are custom implementations with analytic Jacobian-adjoint product gradients and vectorized application to containers.
+Stan provides built-in transforms that map an unconstrained vector in $\mathbb{R}^d$ into a desired constrained space (e.g., a $(d+1)$-simplex), along with the corresponding change-of-variables adjustments to the density. These are custom implementations with analytic Jacobian-adjoint product gradients and vectorized application to containers.
+
 
 The Oryx transform library in TensorFlow is built on top of the TFP bijector library ([`tfp.bijectors`](https://www.tensorflow.org/probability/api_docs/python/tfp/bijectors)) [@dillon2017tensorflow], which can also be used directly.  TFP bijectors provide all of the transforms provided by Stan and many more including softplus, various cdfs and hyperbolic tangent as replacements for inverse-logit, more multivariate transforms such as cumulative sums and Householder factorizations, as well as trained transforms like RealNVP normalizing flows [@dinh2016density].  Oryx additionally allows transforms to be written down directly in such a way that Oryx can automatically calculate inverse transforms and Jacobian determinants of inverse transforms.
+
 
 ## Modularity in JAX
 
@@ -102,7 +104,7 @@ In this section, we will lay out the precise definition of the Bayesian inferenc
 
 ## Bayesian models
 
-A Bayesian model is nothing more than a joint distribution over parameters $\theta$ and data $y$.  By the chain rule, the posterior distribution of the parameters given the data is given by $p(\theta \mid y) \propto p(\theta, y)$.  Often our density is factored into a prior times a likelihood, $p(\theta \mid y) = p(\theta) \cdot p(y \mid \theta)$, but nothing in Stan or what we are proposing for JAX presupposes a clean factorization.  In fact, our methods can be used to sample from any old density---it doesn't have to arise as a Bayesian posterior.
+A Bayesian model is nothing more than a joint distribution over parameters $\theta$ and data $y$.  By the chain rule, the posterior distribution of the parameters given the data is given by $p(\theta \mid y) \propto p(\theta, y)$.  Often our density is factored into a prior times a likelihood, $p(\theta \mid y) = p(\theta) \cdot p(y \mid \theta)$, but nothing in Stan or what we are proposing for JAX presupposes a clean factorization.  In fact, our methods can be used to sample from any old unnormalized density---it doesn't have to arise as a Bayesian posterior.
 
 ## Bayesian inference with posterior expectations
 
@@ -130,29 +132,48 @@ $$
 \Pr[\theta \in A \mid y] = \mathbb{E}[\mathbb{1}_A(\theta \in A) \mid y].
 $$
 
-If we want to evaluate posterior predictive densities $p(\tilde{y} \mid y)$ for new data $\tilde{y}$, this can be expressed as an expectation,
+If we want to evaluate posterior predictive densities $p(\tilde{y} \mid y)$ for new data $\tilde{y}$, this can be expressed as an expectation of the likelihood $p(\tilde{y} \mid \theta)$,
 $$
 p(\tilde{y} \mid y) = \mathbb{E}[p(\tilde{y} \mid \theta) \mid y].
 $$
 
 ## Computation with Markov chain Monte Carlo methods
-
 We can reduce the high-dimensional integration problem to one of sampling from the posterior,
 $$
 \theta^{(m)} \sim p(\theta \mid y).
 $$
-Given modest assumptions to ensure ergodicity [@roberts2004mcmc], the Monte Carlo estimate converges to the true value,
+Given independent, identically distributed (i.i.d.) Monte Carlo draws, the Monte Carlo estimator
 $$
-\mathbb{E}[f(\theta) \mid y]
-= \lim_{M \rightarrow \infty} \
-  \frac{1}{M} \sum_{m < M} f(\theta^{(m)}).
+\widehat{I}_M \;\;=\;\; \frac{1}{M}\sum_{m=1}^{M} f(\theta^{(m)})
 $$
-In practice, we use a finite approximation for a fixed $M$,
+converges almost surely to the true posterior expectation $\mathbb{E}[f(\Theta)\mid y]$ by the strong law of large numbers. Moreover, if $\textrm{var}[f(\Theta)\mid y] < \infty$, then a central limit theorem implies the asymptotic normal approximation
 $$
-\mathbb{E}[f(\theta) \mid y]
-\approx  \frac{1}{M} \sum_{m < M} f(\theta^{(m)}).
+\sqrt{M}\Big(\widehat{I}_M - \mathbb{E}[f(\Theta)\mid y]\Big)
+\;\xrightarrow[]{\;\;d\;\;}\;
+\mathcal{N}\!\left(0,\;\textrm{var}[f(\Theta)\mid y]\right),
 $$
-If the Markov chain is well behaved (e.g., it's geometrically ergodic), then the Markov chain central limit theorem will hold, and the Monte Carlo estimate will converge to the true value at a rate of $\mathcal{O}(1 / \sqrt{M})$ [@roberts2004mcmc].
+which justifies the familiar $\mathcal{O}(1/\sqrt{M})$ Monte Carlo error rate and standard-error estimates for averages. Finite-sample concentration bounds are also hold under additional regularity assumptions (e.g., boundedness or sub-exponential tails of $f(\Theta)$), giving us explicit deviation probabilities for $\widehat{I}_M$ around $\mathbb{E}[f(\Theta)\mid y]$ [@gelman2013bda; @paulin2015concentration].
+
+In practice, exact i.i.d. draws from $p(\theta\mid y)$ are rarely available. Fortunately, many weaker sampling schemes still yield consistent estimators of posterior expectations. These include rejection sampling and importance sampling (which produce weighted estimators), sequential Monte Carlo (which propagates and reweights a particle population), and Markov chain Monte Carlo (which constructs a dependent sequence whose stationary distribution is the posterior) [@gelman2013bda; @doucet2001introduction; @roberts2004mcmc].
+
+The idea of Markov chain Monte Carlo (MCMC) is that *correlated* draws from an ergodic Markov chain with invariant distribution $p(\theta\mid y)$ can still be used in the same sample-average estimator $\widehat{I}_M$. Under standard conditions (e.g., Harris ergodicity) that are easily satisfied in practical applications, the Markov chain ergodic theorem guarantees $\widehat{I}_M \to \mathbb{E}[f(\Theta)\mid y]$ even though the draws are dependent [@roberts2004mcmc].
+
+When the chain is particularly well behaved (e.g., geometrically ergodic with suitable moment conditions) a Markov chain central limit theorem holds:
+$$
+\sqrt{M}\Big(\widehat{I}_M - \mathbb{E}[f(\Theta)\mid y]\Big)
+\;\xrightarrow[]{\;\;d\;\;}\;
+\mathcal{N}\!\left(0,\;\sigma_f^2\right),
+$$
+with asymptotic variance
+$$
+\sigma_f^2
+= \textrm{var}_\pi(f(\Theta)) \tau_\text{int},
+$$
+where $\pi(\cdot)=p(\cdot\mid y)$, $\tau_\text{int}=1+2\sum_{k\ge 1}\textrm{corr}_\pi\!\big(f(\Theta_0), f(\Theta_k)\big)$ and $\{\Theta_k\}$ denotes the stationary chain. This formula for the variance motivates the usual definition of the effective sample size $M_\text{eff}=M/\tau_\text{int}$ and the heuristic $\mathcal{O}(1/\sqrt{M_\text{eff}})$ error rate [@roberts2004mcmc; @vehtari2021rank].
+Under similarly strong assumptions (e.g., uniform or geometric ergodicity, or a spectral-gap condition), one can also obtain non-asymptotic deviation bounds and Bernstein/Hoeffding-type concentration inequalities for Markov chain averages [@paulin2015concentration]. 
+
+Unfortunately, these strong conditions needed for MCMC central limit theorems and concentrations bounds are typically difficult to verify for the complex MCMC methods and posteriors encountered in modern Bayesian inference over continuous parameter spaces [@roberts2004mcmc]. Even so, MCMC, especially modern gradient-based variants, has shown remarkable empirical success in applied Bayesian inference, with practical reliability assessed via convergence diagnostics, effective sample sizes, and predictive checks rather than direct verification of theoretical assumptions [@gelman2020workflow; @vehtari2021rank].
+
 
 ## Unconstrained parameterizations
 
