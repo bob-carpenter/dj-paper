@@ -15,6 +15,14 @@ author:
       - name: Flatiron Institute
         department: Center for Computational Mathematics
         url: https://www.simonsfoundation.org/flatiron/center-for-computational-mathematics/
+  - name: Matthijs Vákár
+    email: m.i.l.vakar@uu.nl
+    url: https://www.uu.nl/staff/MILVakar
+    orcid: 0000-0003-4603-0523
+    affiliations:
+      - name: Utrecht University
+        department: Information and Computing Sciences
+        url: https://www.uu.nl/en/organisation/department-of-information-and-computing-sciences
   - name: Mitzi Morris
     email: mitzi212@gmail.com
     url: https://mitzimorris.github.io
