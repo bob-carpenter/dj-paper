@@ -231,7 +231,7 @@ $$
 p^\textrm{unc}(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
 = p(\alpha, \beta, \exp(\sigma^\textrm{unc}) \mid x, y) \cdot \exp(\sigma^\textrm{unc}).
 $$
-On the log scale where we operate to prevent underflow and maintain precision, we have
+On the log scale, where we operate to prevent underflow and maintain precision, we have
 $$
 \log p(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
 = \log p(\alpha, \beta, \exp(\sigma^\textrm{unc}) \mid x, y) + \sigma^\textrm{unc}.
@@ -319,60 +319,74 @@ The simulated parameter values are as follows.
 print(f"alpha:{params['alpha']:6.2f};   beta[0]:{params['beta'][0]:6.2f};   beta[1]:{params['beta'][1]:6.2f};   sigma:{params['sigma']:6.2f}")
 ```
 
-It's always a good idea to plot your data when possible.  We provide a plot of training data $y$ as a function of $x$ in @fig-sim-expected-y and @fig-sim-observed-x.
-
+In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $Y \sim \textrm{normal}(\alpha + x \cdot beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[Y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
+ 
 ```{python python-code}
 #| code-fold: true
-#| fig-cap: "*A heatmap plot of `y = alpha + x @ beta` vs. `x` over 4 marginal standard deviations. The horizontal axes show the covariates `x` and the color represents `y`. *"
-#| label: fig-sim-expected-y
+#| label: fig-sim-surface-plus-x
+#| fig-cap: "*Heatmap of the expected value surface `E[Y | x] = alpha + x @ beta` over 4 marginal standard deviations in `x`, where `x[0] ~ normal(0, 1)` and `x[1] ~ chi_sq(1)`.  The observed covariates overlaid as white disks.*"
 
+import numpy as np
 import pandas as pd
 import plotnine as pn
-pn.options.set_option("figure_format", "png")
-pn.options.set_option("figure_size", (10, 6))
 
-alpha, beta = params['alpha'], params['beta']
-x1_lim=(-4.0, 4.0)
-x2_lim=(0.0, 16.0)
-n=201
+pn.options.set_option("figure_format", "png")
+pn.options.set_option("figure_size", (6, 4))
+pn.options.set_option("dpi", 100)
+
+alpha, beta = params["alpha"], params["beta"]
 beta = np.asarray(beta, dtype=float).reshape(-1)
+
+x1_lim = (-4.0, 4.0)
+x2_lim = (0.0, 16.0)
+n = 201
+
 x1_grid = np.linspace(x1_lim[0], x1_lim[1], n)
 x2_grid = np.linspace(x2_lim[0], x2_lim[1], n)
 x1_mesh, x2_mesh = np.meshgrid(x1_grid, x2_grid, indexing="xy")
-mu = float(alpha) + beta[0] * x1_mesh + beta[1] * x2_mesh
-grid_df = pd.DataFrame({ 'x1': x1_mesh.ravel(),
-                         'x2': x2_mesh.ravel(),
-                         'mu': mu.ravel() })
-plot_expected_y = (
-    pn.ggplot(grid_df, pn.aes("x1", "x2", fill="mu"))
-    + pn.geom_raster()
-    + pn.labs(x="x[ : , 0]", y="x[ : , 1]",
-              fill="E[y | x]", title="Expected value surface")
-)
-plot_expected_y.show()
-```
 
-```{python python-code}
-#| code-fold: true
-#| fig-cap: "*Observed values of `x` in the simulation.*"
-#| label: fig-sim-observed-x
+mu = float(alpha) + beta[0] * x1_mesh + beta[1] * x2_mesh
+grid_df = pd.DataFrame(
+    {"x1": x1_mesh.ravel(), "x2": x2_mesh.ravel(), "mu": mu.ravel()}
+)
 
 x = np.asarray(data["x"], dtype=float)
 obs_df = pd.DataFrame({"x1": x[:, 0], "x2": x[:, 1]})
-plot_observed = (
-    pn.ggplot(obs_df, pn.aes("x1", "x2"))
-    + pn.geom_point(size=1.5, alpha=0.7)
-    + pn.labs(x="x[ : , 0]", y="x[ : , 1]",
-              title="Observed x values")
+
+plot_surface_plus_obs = (
+    pn.ggplot(grid_df, pn.aes("x1", "x2"))
+    + pn.geom_raster(pn.aes(fill="mu"))
+    + pn.geom_point(
+        data=obs_df,
+        mapping=pn.aes("x1", "x2"),
+        inherit_aes=False,
+	fill="white",
+        color="black",
+        stroke=0.6,
+        size=2.8,
+        alpha=1.0,
+    )
+    + pn.labs(x="x[0]", y="x[1]", fill="E[Y | x]")
+    + pn.theme(
+        panel_background=pn.element_rect(fill="white"),
+        plot_background=pn.element_rect(fill="white"),
+        panel_spacing=0,
+        panel_border=pn.element_blank(),
+     )
+   + pn.scale_x_continuous(expand=(0, 0))
+   + pn.scale_y_continuous(expand=(0, 0))
 )
-plot_observed.show()
+
+plot_surface_plus_obs.show()
 ```
+
+
 
 
 
 # Sampling with Stan
 
-Now that we have defined a Stan program and simulated data, we can perform inference based on the simulated data (pretending that we did not already know the parameters).  We will use Stan's defaults, which uses the multinomial no-U-turn sampler [@hoffman2014no,@betancourt2017conceptual] for fitting in four chains, with 1000 warmup and 1000 sampling iterations.
+Now that we have defined a Stan program and simulated data, we can perform inference from the simulated data (pretending that we did not already know the parameters).  We will use Stan's defaults.
 
 ## The CmdStanPy interface
 
@@ -390,16 +404,18 @@ import logging
 csp.utils.get_logger().setLevel(logging.ERROR)
 ```
 
-## Transpilation, compilation, and sampling
+## Transpilation and compilation
 
-Once we've done that, fitting is a two-liner that first transpiles the Stan program to C++ and compiles the C++ code.  
+Once CmdStan is installed, transpiling the model to C++ and compiling the C++ is a one-liner.
 
 ```{python python-code}
 #| code-fold: false
 m = csp.CmdStanModel(stan_file="linear-regression.stan")
 ```
 
-Then it calls the sampler.  
+## Sampling
+
+Given the model `m`, sampling with Stan's default parameters is a one liner.  We call the sampler with the `data` variable simulated above, and we turn off progress bars to render in a paper.
 
 
 ```{python python-code}
@@ -411,18 +427,18 @@ The variable `data` was defined above in the simulation.  The call to `sample()`
 
 ## Posterior summaries with CmdStanPy and ArviZ
 
-Now that we have the fit, we can print a summary of the posterior from CmdStan, limiting the number of significant figures based on the number of draws.  
+Now that we have the fit, we can print a summary of the posterior from CmdStan, reducing its default number of digits printed.
 
 ```{python python-code}
 #| code-fold: false
 summary_csp = fit.summary(sig_figs=3)
 print(summary_csp)
 ```
-The first column lists all the variables of interest in the model, with `lp__` denoting the unnormalized log posterior density.  The remaining columns are defined per variable and include the posterior mean, Monte Carlo standard error, posterior standard deviation, mean absolute deviation (like standard deviation for medians), three quantiles (5\%, 50\%, and 95\%), as well as some convergence diagnostics.  The rank-normalized $\widehat{R}$ statistic is reported in the last column, and the effective sample size in the bulk and tail of the density, as well as bulk effective sample size per second (where we see this all ran quickly); definitions of all of these can be found in @vehtari2021rank.
+The `summary_csp` variable provides programmatic access to the data this printed by default along with much more debugging and configuration information.  The variable `lp__` reported in the first row is the unnormalized log posterior density, the variables `alpha`, `beta`, and `sigma` report model parameters, and `y_new` reports the models posterior predictions. The remaining columns are defined per variable and include the posterior mean, Monte Carlo standard error, posterior standard deviation, mean absolute deviation (like standard deviation for medians), three quantiles (5\%, 50\%, and 95\%), as well as some convergence diagnostics.  The rank-normalized $\widehat{R}$ statistic is reported in the last column, and the effective sample size in the bulk and tail of the density, as well as bulk effective sample size per second (where we see this all ran quickly); definitions of all of these are provided by @vehtari2021rank.
 
-This summary shows that the model fits very well.  While it doesn't report timing, the effective sample size per second statistic lets you infer that this all ran in less than 0.1s.  The $\widehat{R}$ statistics are all below 1.005 and the effective sample sizes are all above 2000 with 4000 total sampling draws across four chains.
+The summary shows that the model fits very well.  While it doesn't report timing, the effective sample size per second statistic lets you infer that this all ran in less than 0.1s.  The $\widehat{R}$ statistics are all below 1.005 and the effective sample sizes are all above 2000 with 4000 total sampling draws across four chains.
 
-Roughly the same summary can be achieved using the standalone package ArviZ, which shares many developers with Stan.
+A very similar summary is available from the Python package ArviZ, which shares many developers with Stan.  Using the method `draws_xr()`, CmdStanPy produces an Xarray (defined in package `xarray`) that can be directly consumed by ArviZ's `summary()` function.
 
 ```{python python-code}
 #| code-fold: false
@@ -433,7 +449,7 @@ summary_az = az.summary(fit_xr)
 print(summary_az)
 ```
 
-The main difference is that ArviZ defaults to reporting 94% highest density intervals rather than traditional central intervals based on quantiles.  ArviZ can be configured to include Stan's quantile output, if desired and the highest-density interval changed to 90% coverage to match Stan's output using NumPy's quantile functions.
+The main difference is that ArviZ defaults to reporting 94% highest density intervals rather than traditional central intervals based on quantiles.  ArviZ can be configured to include Stan's quantile output, if desired and the highest-density interval changed to 90% coverage to match Stan's output using NumPy's quantile functions.  These packages typically report 90% rather than 95% intervals because the standard error of quantile estimates increases dramatically in the tails [@bahadur1966note; @vandervaart1998asymptotic].
 
 ```{python python-code}
 #| code-fold: false
@@ -449,7 +465,6 @@ summary_az_stan = az.summary(
 )
 print(summary_az_stan)
 ```
-
 
 # Stan to C++ transpilation
 
@@ -470,7 +485,7 @@ A Stan program translates almost line-for-line to a C++ class that implements al
 
 ## Stan's transpiled C++ model class
 
-Stan programs are transpiled to C++, and then the C++ is compiled down to machine instructions.  The C++ class generated for the model has the following signatures, which have been simplified to remove debugging traces, template traits restrictions, and some fine-grained control parameters.  This is the same interface as is exposed by BridgeStan in Python, R, Julia, C, and Rust [@roualdes2023bridgestan].
+Stan programs are transpiled to C++, and then the C++ is compiled down to machine instructions.  The C++ class generated for the model has the following signatures, which have been simplified to remove debugging traces, template traits restrictions, and some fine-grained control parameters.  This is the same interface that is exposed by BridgeStan in Python, R, Julia, C, and Rust [@roualdes2023bridgestan].
 
 ```cpp
 namespace lr_model_namespace {
@@ -484,11 +499,12 @@ class lr_model : model_base<lr_model> {
   linear_regression_model(var_context& c, int seed,
                           ostream* msgs);
 
-  // log densitye type T, propto drops constants, jacobian adjusts
+  // log density type T, propto drops constants, jacobian adjusts
   template <bool propto, bool jacobian, typename T>
   Vector<T> log_prob(Vector<T>& params, ostream* msgs) const;
 
   // evaluate generated quantities and write csv
+  template <typnename RNG>
   void write(RNG& rng, const VectorXd& params,
              ostream* csv_stream) const;
 
@@ -521,7 +537,7 @@ $$
 $$
 The corresponding unconstrained log density over which inference is performed, adds the log Jacobian adjustment for the change of variables,
 $$
-\log p(\alpha, \beta, \sigma^\text{u} \mid x, y)
+\log p^\text{u}(\alpha, \beta, \sigma^\text{u} \mid x, y)
 = \log p(\alpha, \beta, \exp(\sigma^\text{u}) \mid x, y) + \sigma^\text{u}.
 $$
 
@@ -550,72 +566,291 @@ inline auto log_prob(Vector<T>& params) const {
 }
 ```
 
-The `read` methods of the deserializer read the next variable fromn the sequence of parameters, perform any necessary constraining transform and add any Jacobian adjustment to `lp`, controlled by the flag `jacobian`.  Arithmetic in the Stan program is replaced with overloaded internal library calls `add` and `multiply` which can handle vectors and scalars.  There is implicit broadcasting and internal summation in the `normal_lpdf` log density function.  When applied to a vector like `beta` or `y`, it sums the log densities of the components, broadcasting any scalar arguments as necessary.  The accumulator collects terms and then its method `sum` returns a flattened autodiff tree with a single root pointing to all the terms with implicit unit derivatives.
+The `read` methods of the deserializer read the next variable from the sequence of parameters, perform any necessary constraining transform and add any Jacobian adjustment to `lp`, controlled by the flag `jacobian`.  Arithmetic in the Stan program is replaced with overloaded internal library calls `add` and `multiply` which can handle vectors and scalars.  There is implicit broadcasting and internal summation in the `normal_lpdf` log density function.  When applied to a vector like `beta` or `y`, it sums the log densities of the components, broadcasting any scalar arguments as necessary.  The accumulator collects terms and then its method `sum` returns a flattened autodiff tree with a single root pointing to all the terms with implicit unit derivatives.
 
 To support the changes of variables for reporting constrained output, the compiled C++ code exposes the constraining transform and its Jacobians. For initialization from constrained parameters, there is a matching unconstraining transform.  The model class also supplies methods for determining the shape and names of the constrained and unconstrained parameters.
 
-The final component of a compiled Stan model is a function to perform predictive inference as defined by the generated quantities block (this can also be done post-hoc with a new program and generated quantities block).  In particular, the model compiles a generated quantities function that takes a random number generator and produces the output defined in the generated quantities block purely by forward sampling without the need for any automatic differentiation.
+The final component of a compiled Stan model is a function to perform predictive inference as defined by the generated quantities block (this can also be done post-hoc with a new program and generated quantities block).  In particular, the model compiles a generated quantities function `write()` that takes a random number generator and produces the output defined in the generated quantities block purely by forward sampling without the need for any automatic differentiation.
 
 
-# Coding models in JAX
+# Coding models directly in JAX
 
-Now that we have the low-level target C++ code for a Stan program, we are going to translate the C++ to JAX.  Then we will build back up to a higher-level abstraction and our JAX code will look very similar to our Stan code.
+In this section, we will translate the functionality provided by Stan's C++ class directly into a more functional JAX style.  It's much simpler than Stan's transpiled C++ code because of the built-in serialization and optimization of PyTree and the binding of data.  In the next section, we will wrap up some utility functions to make it much easier to achieve the same functionality.
 
-## Linear regression example coded directly in JAX
 
-Here's a definition of our linear regression model in JAX.  The naming should make it clear how it corresponds to the C++ model produced by the Stan transpiler from the Stan program.
+## Linear regression directly in JAX
+
+This section provides one way to code our linear regression model directly in JAX.  We will start by importing the libraries we need, which include JAX's version of NumPy, JAX's random number generator, and the `stats` library from JAX's version of SciPy.  Finally, we import the Blackjax library for sampling.  We first import all of JAX itself as we will need it for just-in-time compilation.
 
 ```{python python-code}
 #| code-fold: false
+import jax
 import jax.numpy as jnp
+import jax.random as jrd
 from jax.scipy import stats
 
-# data omitted (jnp.arrays)
-x = ... 
-y = ... 
-
-# constrained; closes over data x, y
-def log_joint(alpha, beta, sigma):
-    lp = 0
-    
-    # prior
-    lp += jnp.sum(stats.norm.logpdf(alpha, loc=0.0, scale=1.0))
-    lp += jnp.sum(stats.norm.logpdf(beta, loc=0.0, scale=1.0))
-    lp += jnp.sum(stats.expon.logpdf(sigma, scale=1.0))
-
-    # likelihood
-    mu = alpha + x @ beta
-    lp += jnp.sum(stats.norm.logpdf(y, loc=mu, scale=sigma))
-
-    return lp
-
-# unconstrained
-def log_prob(alpha, beta, sigma_unc):
-    lp_jacobian = 0
-    sigma = jnp.exp(sigma_unc)
-    lp_jacobian += sigma_unc
-    
-    lp_joint = log_joint(alpha, beta, sigma)
-    
-    return lp_jacobian + lp_joint
+import blackjax
 ```
 
-There are a few differences between Stan and its C++.
+Before we begin, we will also convert the Python and NumPy data types to JAX.
 
-1.  There are no data declarations.  The function `log_joint` closes over the data variables `x` and `y` (i.e., it reads them from the environment where it was defined); we will shortly show how to abstract this into a function.
-2.  JAX does not require parameters to be serialized. With the wizardry of PyTree, the Blackjax and many JAX-based packages can work directly with the `log_prob` function without any need for serialization of the parameters into a flattened array.  If serialized log density functions _are_ needed elsewhere, they are convertible with a single function call as we show below.
-3.  There is no need to work with accumulators---JAX's just-in-time compilation is sufficient to optimize sequeces of operations at the XLA substrate to which JAX is compiled.
-4.  The `log_joint` function where the user defines a model is defined over constrained parameters, whereas the `log_prob` function is defined over unconstrained parameters; this mirrors Stan directly rather than its compiled C++ code, which does not define the joint density as a function.
-5.  As presented above, there is not any 'generated quantities'-like behavior. One advantage of coding the model in a consistent language like Python is that these forward sampling functions are more or less the same as any other function of the draws, and can be written later than (or indeed, entirely separately from) the log density.  That being said, we will show how a user who wants to give special place to some 'generated quantities' behavior in their workflow can do so in the following sections.
+```{python python-code}
+#| code-fold: false
 
-Because it is just Python code, we could break the JAX model code down into calls to a log prior and log likelihood function.  Here, we have stuck to the Stan coding conventions to help make the translation clearer.  Other parts of the code may also be broken out into function calls.  There is no need for a separate block to declare functions---plain old Python functions can be used to evaluate JAX calls.
+x = jnp.array(data["x"])
+y = jnp.array(data["y"])
+x_new = jnp.array(data["x_new"])
+```
 
-The `log_joint` function corresponds to the Stan model block and is defined over constrained parameters. The `log_prob` function, on the other hand, is defined for unconstrained parameters, as in the compiled C++ code for a Stan program.  Like in the Stan `log_prob` function in C++, the `log_prob` function here first transforms unconstrained parameters to constrained and collects their Jacobians.  Then it calls the code that matches the Stan model block, i.e., `log_joint`.  The return is just the log Jacobian plus log joint density, just as in Stan.  In the call from `log_prob`, `sigma` will be positive by construction.
+## The untransformed log posterior in JAX
 
-Aside from the verbosity of all the namespace qualifiers and the need for all the intermediate calls to `sum`, the biggest obstacle to writing code this way is having to manually deal with the constraining and unconstraining transform.
+The log density function from the Stan model block can then be translated almost line by line into JAX; we only break out the definition of `mu` for readability---it could have been a nested expression.
 
 
-## Linear regression in JAX with `densejax`
+```{python python-code}
+#| code-fold: false
+
+def log_posterior(params):
+    lp = 0.0
+    lp += jnp.sum(stats.norm.logpdf(params["alpha"], loc=0.0, scale=5.0))
+    lp += jnp.sum(stats.norm.logpdf(params["beta"], loc=0.0, scale=2.5))
+    lp += jnp.sum(stats.expon.logpdf(params["sigma"], scale=1.25))
+    mu = params['alpha'] + x @ params["beta"]
+    lp += jnp.sum(stats.norm.logpdf(y, loc=mu, scale=params["sigma"]))
+    return lp
+```
+
+The `log_posterior` function binds the covariate matrix `x` and the outcome vector `y` from the top-level environment.  An alternative would have been to bind a JAX conversion of top-level container `data`, but we never need the encapsulated data, so just define the variables directly.  The log probability density functions are implemented in JAX's version of SciPy's `stats` library.  Unlike in Stan, where density functions automatically reduce by summation, the functions in `stats.norm` return JAX arrays, which are here summed by JAX's version of NumPy before being added to the target log density accumulator `lp`.  
+
+The parameters themselves are read out of the argument dictionary.  While this may appear inefficient, JAX's just-in-time (JIT) compiler is smart enough to reduce the dictionary lookups to direct accesses at run time.
+
+
+## Transforms and their inverses in JAX
+
+Before we can use this log posterior for sampling, we need a few support functions.  To mirror Stan, the sampler needs to work on the transformed scale.  Here, as in most programs, the transform maps constrained variables to unconstrained ones. In our regression example, the scale, which is constrained to $(0, \infty)$, is log-transformed so that the transformed scale ranges over the whole real number line, $(-\infty, \infty)$.  
+
+We will start with the transform, which is only needed in practice for initializations from untransformed parameter values. In the linear regression example, the transform maps the regression coefficients to themselves and the scale to the log scale.  
+
+
+```{python python-code}
+#| code-fold: false
+
+def transform(params):
+    t_alpha = params["alpha"]
+    t_beta = jnp.array(params["beta"])
+    t_sigma = jnp.log(params["sigma"])
+    t_params = { "alpha": t_alpha, "beta": t_beta, "sigma": t_sigma }
+    return t_params
+```
+
+The `transform()` function could have been implemented in one line.  Instead, we chose to follow a variable-by-variable pattern that will make it easier to automate later.
+
+The inverse transform is needed at runtime to map the transformed variables back to their untransformed state so that the log posterior may be applied.  For the inverse transform, any adjustment to ensure the implied distribution on the untransformed parameter space is uniform is returned along with the transformed parameters.  Typically, this is a Jacobian determinant to adjust for a bijective change-of-variables.  We use the same variable names for both transformed and untransformed parameters. The adjustment for the log change of variables here is just the log scale itself, as we derived above.  To keep the code structure regular and to ease the transition to automation, we use a log adjustment variable that is initialized to zero and updated after each inverse transform.
+
+
+```{python python-code}
+#| code-fold: false
+
+def inv_transform(t_params):
+    log_adjust = 0.0
+    alpha = t_params["alpha"]
+    beta = jnp.array(t_params["beta"])
+    sigma = jnp.exp(t_params["sigma"])
+    log_adjust += t_params["sigma"]
+    params = { "alpha": alpha, "beta": beta, "sigma": sigma }
+    return params, log_adjust
+```
+
+
+## The tranformed log density in JAX
+
+The transformed log posterior function we will use for sampling can be defined to apply the inverse transform and add the adjustment.
+
+```{python python-code}
+#| code-fold: false
+def log_posterior_transformed(t_params):
+    params, log_adjust = inv_transform(t_params)
+    log_post = log_posterior(params)
+    return log_adjust + log_post
+```
+
+## Random initialization in JAX
+
+Following Stan, we need a way to generate a transformed random initialization.  Here we use JAX's version of SciPy's `stats.random` library (imported above as `jrd`).
+
+```{python python-code}
+#| code-fold: false
+
+def random_init_transformed(key):
+    key0, key1, key2 = jrd.split(key, 3)
+    t_alpha = jrd.normal(key0)
+    t_beta = jrd.normal(key1, shape=(2,))
+    t_sigma = jrd.normal(key2)
+    t_params = { "alpha": t_alpha, "beta": t_beta, "sigma": t_sigma }
+    return t_params
+```
+
+The random number generators are supplied with shapes for variables that are not scalars.  Let's generate an initialization.
+
+```{python python-code}
+#| code-fold: false
+
+seed = 441_582
+key = jrd.key(seed)
+init_key, nuts_key = jrd.split(key, 2)
+t_params_init = random_init_transformed(init_key)
+print(f"{t_params_init=}")
+```
+
+As a consistency check, we verify that the parameters we used to generate data are round-trippable through the transform and inverse transform.
+
+
+```{python python-code}
+#| code-fold: false
+params_init, log_adjust = inv_transform(t_params_init)
+t_params_init_round_trip = transform(params_init)
+
+print(f"{params_init=}")
+print(f"{log_adjust=}")
+print(f"{t_params_init_round_trip=}")
+```
+
+The round trip arithmetic is not exact for `sigma`, because JAX works with 32-bit float types (`float32`) by default,
+
+## Sampling in Blackjax
+
+Before sampling, we will define a top-level Markov chain sampler and then we will instantiate it with the NUTS transition kernel configured to run in a way that matches Stan's defaults.  
+
+```{python python-code}
+#| code-fold: false
+
+def random_markov_chain(key, kernel, init_state, num_draws):
+    @jax.jit
+    def one_step(state, key):
+        state, _ = kernel(key, state)
+        return state, state
+    keys = jrd.split(key, num_draws)
+    _, states = jax.lax.scan(one_step, init_state, keys)
+    return states
+
+def nuts_sample(key, log_density, init_position, num_draws):
+    init_key, warmup_key, sample_key = jrd.split(key, 3)
+    warmup = blackjax.window_adaptation(blackjax.nuts, log_density)
+    (state, params), _ = warmup.run(warmup_key, init_position, num_steps=num_draws)
+    kernel = blackjax.nuts(log_density, **params).step
+    states = random_markov_chain(sample_key, kernel, state, num_draws)
+    draws = states.position
+    return draws
+```
+
+Working outward, the nested function `one_step` takes one step of a Markov chain from a given state and returns the next state.  It uses a supplied transition kernel and random key.  It starts from the specified initial state and produces the specified number of draws.  It uses JAX's lax scan to execute the loop, repeatedly applying the one-step transition function.  The NUTS sample function is the top level caller.  it takes a PRNG key, the target log density, an initial position, and a number of draws that specifies the number of warmup draws and the number of sampling draws.  It uses Blackjax's windowed warmup, as defined by Stan, then the NUTS sampler.  The algorithm was defined to mirror Stan's reference implementation.
+
+We've already generated a transformed initialization `t_params_init`, so all that remains is to call the sample function.
+
+```{python python-code}
+#| code-fold: false
+
+num_draws = 1_000
+
+t_draws = nuts_sample(nuts_key, log_posterior_transformed, t_params_init, num_draws)
+```
+
+## Posterior analysis in JAX
+
+We will do just a bit of posterior analysis manually to make sure we're on the right track. Before that, we need to inverse transform our draws.  We'll do that with a vectorized function and a single call.
+
+```{python python-code}
+#| code-fold: false
+
+def inv_transform_draws(t_draws):
+    draws = {
+        "alpha": t_draws["alpha"],
+        "beta": t_draws["beta"],
+        "sigma": jnp.exp(t_draws["sigma"]),
+    }
+    return draws
+
+draws = inv_transform_draws(t_draws)
+```
+
+Now we can perform the posterior analysis and see that it matches the results from Stan to within the tolerances to be expected from the standard errors.
+
+```{python python-code}
+#| code-fold: false
+
+import functools
+
+posterior_means = jax.tree.map(functools.partial(jnp.mean, axis=0), draws)
+posterior_stds = jax.tree.map(functools.partial(jnp.std, axis=0), draws)
+print(f"{posterior_means=}")
+print(f"{posterior_stds=}")
+```
+
+## Posterior predictive quantities in JAX
+
+In Stan, posterior predictive quantities are typically defined in the generated quantities block.  In JAX, we can lazily define posterior predictive functions after sampling and efficiently map them over the posterior draws.  Here's a function that matches the generated quantities block defined in the Stan implementation of linear regression.  We have already converted the covariates `x_new` to JAX above.
+
+```{python python-code}
+#| code-fold: false
+data_new = { "x_new": x_new }
+
+def posterior_predictive(key, params):
+    mu = params["alpha"] + data_new["x_new"] @ params["beta"]
+    z = jax.random.normal(key, shape=mu.shape)
+    y_new = mu + params["sigma"] * z
+    return {"y_new": y_new}
+```
+
+Unlike the `write()` function in Stan's transpiled C++ class, there is no need to inverse transform---we already have the parameters on the natural scale at this point and can just pass them to the predictive function.
+
+```{python python-code}
+#| code-fold: false
+
+def posterior_predictive_draws(key, draws):
+    N = draws["alpha"].shape[0]
+    keys = jax.random.split(key, N)
+    return jax.vmap(posterior_predictive, in_axes=(0, 0))(keys, draws)
+
+key, gq_key = jrd.split(key, 2)
+pred_draws = posterior_predictive_draws(gq_key, draws)
+```
+
+The `vmap` is the way that JAX maps a function in parallel.  The call above is equivalent to
+
+```python
+results = []
+for i in range(S):
+    results.append(posterior_predictive(keys[i], params_draws[i]))
+return results    
+```
+
+The specification `in_axes=(0, 0)` tells the application of `posterior_predictive` to bind to the first argument (i.e., to index position 0).
+
+We can summarize the results as before and verify they line up with the output from Stan's generated quantities block.
+
+```{python python-code}
+#| code-fold: false
+
+posterior_pred_means = jax.tree.map(functools.partial(jnp.mean, axis=0), pred_draws)
+posterior_pred_stds = jax.tree.map(functools.partial(jnp.std, axis=0), pred_draws)
+print(f"{posterior_pred_means=}")
+print(f"{posterior_pred_stds=}")
+```
+
+## Key differences between the Stan and JAX implementations
+
+Some of the bigger differences between Stan and its JAX implementation are as follows.
+
+1.  There are no data declarations.  The functions simply bind (i.e., close over) the data variables `x` and `y` (i.e., it reads them from the environment where it was defined); we will shortly show how to abstract this into a function.
+2.  JAX does not require parameters to be serialized. With the wizardry of PyTree, Blackjax and other JAX-based packages can work directly with the `log_prob` function without any need for serialization.  If serialized log density functions _are_ needed elsewhere, they are convertible with a single function call as we show below.
+3.  There is no need to work with accumulators---JAX's just-in-time compilation is sufficient to optimize sequences of operations at the XLA substrate to which JAX is compiled.
+4.  The generated quantities are not part of the basic model specification, but rather flexibly called later.  While we could have done the same with Stan, the Stan functions are not available in either R or Python, making this another two-language problem.  Furthermore, JAX's ability to efficiently scan accelerates posterior predictive inference in JAX.
+5.  There are no function blocks because plain old Python functions can be applied to JAX objects.  The only caveat is that these functions will be traced, so cannot contain any runtime branching on parameter values.
+
+Aside from the verbosity of all the namespace qualifiers and the need for all the intermediate calls to `sum`, the biggest obstacle to writing code this way is having to manually deal with the transforms and inverse transforms. Our goal is to make it as simple as Stan in the next section.
+
+
+# Linear regression in JAX with `densejax`
 
 The Stan linear regression can be translated almost line for line into Python using `densejax`.
 
@@ -647,6 +882,7 @@ def linear_regression(x, y, x_new):
         
     return model(parameters, log_density, generate)
 ```
+
 
 The resulting `model` object mirrors the C++ object produced by Stan and also the model object produced by BridgeStan [@roualdes2023bridgestan].  Because these simple functions generate fully JAX-embedded code, the log density function can be automatically differentiated and all of the functions can be just-in-time compiled.
 
