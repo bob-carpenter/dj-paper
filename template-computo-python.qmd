@@ -137,57 +137,158 @@ $$
 p(\tilde{y} \mid y) = \mathbb{E}[p(\tilde{y} \mid \theta) \mid y].
 $$
 
+
 ## Computation with Markov chain Monte Carlo methods
 We can reduce the high-dimensional integration problem to one of sampling from the posterior,
 $$
 \theta^{(m)} \sim p(\theta \mid y).
 $$
-Given independent, identically distributed (i.i.d.) Monte Carlo draws, the Monte Carlo estimator
+Given independent and identically distributed (i.i.d.) Monte Carlo draws, the Monte Carlo estimator
 $$
 \widehat{I}_M \;\;=\;\; \frac{1}{M}\sum_{m=1}^{M} f(\theta^{(m)})
 $$
-converges almost surely to the true posterior expectation $\mathbb{E}[f(\Theta)\mid y]$ by the strong law of large numbers. Moreover, if $\textrm{var}[f(\Theta)\mid y] < \infty$, then a central limit theorem implies the asymptotic normal approximation
+converges almost surely (with probability 1) to the true posterior expectation $\mathbb{E}[f(\Theta)\mid y]$ by the strong law of large numbers. Moreover, if $\textrm{var}[f(\Theta)\mid y] < \infty$, then a central limit theorem gives the asymptotic normal approximation
 $$
 \sqrt{M}\Big(\widehat{I}_M - \mathbb{E}[f(\Theta)\mid y]\Big)
-\;\xrightarrow[]{\;\;d\;\;}\;
+\quad\text{converges in distribution to}\quad
 \mathcal{N}\!\left(0,\;\textrm{var}[f(\Theta)\mid y]\right),
 $$
-which justifies the familiar $\mathcal{O}(1/\sqrt{M})$ Monte Carlo error rate and standard-error estimates for averages. Finite-sample concentration bounds are also hold under additional regularity assumptions (e.g., boundedness or sub-exponential tails of $f(\Theta)$), giving us explicit deviation probabilities for $\widehat{I}_M$ around $\mathbb{E}[f(\Theta)\mid y]$ [@gelman2013bda; @paulin2015concentration].
+which implies the familiar $\mathcal{O}(1/\sqrt{M})$ Monte Carlo error rate. Finite-sample concentration bounds  also hold under additional regularity assumptions (e.g., boundedness or sub-exponential tails of $f(\Theta)$), giving us explicit deviation probabilities for $\widehat{I}_M$ around $\mathbb{E}[f(\Theta)\mid y]$ [@gelman2013bda; @paulin2015concentration].
 
-In practice, exact i.i.d. draws from $p(\theta\mid y)$ are rarely available. Fortunately, many weaker sampling schemes still yield consistent estimators of posterior expectations. These include rejection sampling and importance sampling (which produce weighted estimators), sequential Monte Carlo (which propagates and reweights a particle population), and Markov chain Monte Carlo (which constructs a dependent sequence whose stationary distribution is the posterior) [@gelman2013bda; @doucet2001introduction; @roberts2004mcmc].
+In practice, exactly independent draws from $p(\theta\mid y)$ are rarely available. Fortunately, many less-demanding sampling schemes still give estimators that converge to the correct posterior expectations.
+These include rejection sampling; importance sampling (which uses weights); sequential Monte Carlo (which propagates and reweights a particle population); and Markov chain Monte Carlo (which constructs a dependent sequence whose stationary distribution is the posterior) [@gelman2013bda; @doucet2001introduction; @roberts2004mcmc].
 
-The idea of Markov chain Monte Carlo (MCMC) is that *correlated* draws from an ergodic Markov chain with invariant distribution $p(\theta\mid y)$ can still be used in the same sample-average estimator $\widehat{I}_M$. Under standard conditions (e.g., Harris ergodicity) that are easily satisfied in practical applications, the Markov chain ergodic theorem guarantees $\widehat{I}_M \to \mathbb{E}[f(\Theta)\mid y]$ even though the draws are dependent [@roberts2004mcmc].
+
+The idea of Markov chain Monte Carlo (MCMC) is that *correlated* draws from an ergodic Markov chain whose invariant (stationary) distribution is $p(\theta\mid y)$ can still be used in the same sample-average estimator $\widehat{I}_M$.
+Under standard conditions (e.g., Harris ergodicity) that are easily satisfied in practical applications, the Markov chain ergodic theorem guarantees $\widehat{I}_M \to \mathbb{E}[f(\Theta)\mid y]$ even though the draws are dependent [@roberts2004mcmc].
 
 When the chain is particularly well behaved (e.g., geometrically ergodic with suitable moment conditions) a Markov chain central limit theorem holds:
 $$
 \sqrt{M}\Big(\widehat{I}_M - \mathbb{E}[f(\Theta)\mid y]\Big)
-\;\xrightarrow[]{\;\;d\;\;}\;
+\quad\text{converges in distribution to}\quad
 \mathcal{N}\!\left(0,\;\sigma_f^2\right),
 $$
 with asymptotic variance
 $$
 \sigma_f^2
-= \textrm{var}_\pi(f(\Theta)) \tau_\text{int},
+= \textrm{var}_\pi(f(\Theta))\ \tau_\text{int},
 $$
-where $\pi(\cdot)=p(\cdot\mid y)$, $\tau_\text{int}=1+2\sum_{k\ge 1}\textrm{corr}_\pi\!\big(f(\Theta_0), f(\Theta_k)\big)$ and $\{\Theta_k\}$ denotes the stationary chain. This formula for the variance motivates the usual definition of the effective sample size $M_\text{eff}=M/\tau_\text{int}$ and the heuristic $\mathcal{O}(1/\sqrt{M_\text{eff}})$ error rate [@roberts2004mcmc; @vehtari2021rank].
-Under similarly strong assumptions (e.g., uniform or geometric ergodicity, or a spectral-gap condition), one can also obtain non-asymptotic deviation bounds and Bernstein/Hoeffding-type concentration inequalities for Markov chain averages [@paulin2015concentration]. 
+where $\pi(\cdot)=p(\cdot\mid y)$, $\{\Theta_k\}$ denotes the stationary chain, and $\tau_\text{int}$ (the integrated autocorrelation time) satisfies $\tau_\text{int}=1+2\sum_{k\ge 1}\textrm{corr}_\pi\!\big(f(\Theta_0), f(\Theta_k)\big)$.
+This motivates defining the effective sample size as $M_\text{eff}=M/\tau_\text{int}$ and using the heuristic $\mathcal{O}(1/\sqrt{M_\text{eff}})$ error rate [@roberts2004mcmc; @vehtari2021rank].
+Under similarly strong assumptions (e.g., uniform or geometric ergodicity, or a spectral-gap condition), one can also obtain non-asymptotic deviation bounds and Bernstein- or Hoeffding-type concentration inequalities for Markov chain averages [@paulin2015concentration].
 
-Unfortunately, these strong conditions needed for MCMC central limit theorems and concentrations bounds are typically difficult to verify for the complex MCMC methods and posteriors encountered in modern Bayesian inference over continuous parameter spaces [@roberts2004mcmc]. Even so, MCMC, especially modern gradient-based variants, has shown remarkable empirical success in applied Bayesian inference, with practical reliability assessed via convergence diagnostics, effective sample sizes, and predictive checks rather than direct verification of theoretical assumptions [@gelman2020workflow; @vehtari2021rank].
-
+These strong conditions needed for MCMC central limit theorems and concentration bounds are typically difficult to verify for the complex MCMC methods and posteriors encountered in modern Bayesian inference over continuous parameter spaces [@roberts2004mcmc]. Even so, MCMC, especially modern gradient-based variants, has shown remarkable empirical success in applied Bayesian inference.
+Instead of verifying theoretical assumptions, users tend to assess practical reliability via convergence diagnostics, effective sample sizes, and predictive checks [@gelman2020workflow; @vehtari2021rank].
 
 ## Unconstrained parameterizations
 
-It is much easier to define a sampling algorithm for situations where the posterior has support over all of $\mathbb{R}^D$, i.e., for all $\theta \in \mathbb{R}^D$, $p(\theta \mid y) > 0$.  Stan and other PPLs transform any constrained parameters to be unconstrained.  Then in practice, the unconstrained parameters are inverse transformed to satisfy their constraints.  This requires an adjustment for the change of variables, which happens implicitly in PPLs.  Stan requires all parameter constraints to be declared; the graphical modeling sublanguage of PyMC and NumPyro infer these constraints from the distributions in which variables participate (e.g., if a variable is given a Wishart distribution, it must be a symmetric and positive definite matrix).
-
-Mathematically, given a constrained random variable $\Theta \in C \subseteq \mathbb{R}^D$, with a density $p_\Theta(\theta)$, and a smooth bijection $f:C \rightarrow \mathbb{R}^N$, we can derive the density of $\Phi = f(\Theta)$ as
+It is much easier to define a sampling algorithm (particularly a gradient-based sampler like HMC/NUTS) when the sampler’s state lives in an unconstrained Euclidean space $\mathbb{R}^N$, with no hard boundaries. Stan and other PPLs achieve this by representing each constrained parameter $\Theta\in C\subseteq\mathbb{R}^D$ using an unconstrained variable $\Phi\in\mathbb{R}^N$ and a smooth map
 $$
-p_\Phi(\phi) = p_\Theta(f^{-1}(\phi)) \cdot \left| \nabla f^{-1}(\phi) \right|,
+t:\mathbb{R}^N \to C,\qquad \Theta = t(\Phi),
 $$
-where $|\cdot|$ denotes the absolute determinant operator and $f^{-1}$ is the inverse of $f$.  In the univariate case, $\nabla f^{-1}(y)$ reduces to the derivative of the inverse transform at $y$ (i.e., $\nabla f^{-1} = (f^{-1})'$).
+so we can run the sampler in $\phi$-space and interpret $\theta=t(\phi)$ on the constrained space $C$. Here $N$ is the number of unconstrained degrees of freedom chosen for the parameterization; for example, for a $K$-simplex one typically chooses $N=K-1$ with a stick-breaking parameterization $t$. This requires an adjustment for the change of variables, which happens implicitly in PPLs. Stan requires all parameter constraints to be declared; the graphical modeling sublanguage of PyMC and NumPyro infer these constraints from the distributions in which variables participate (e.g., if a variable is given a Wishart distribution, it must be a symmetric and positive definite matrix).
 
-If there is a sequence of variables being transformed one at a time, the overall Jacobian will be block diagonal, with an absolute Jacobian determinant equal to the product of the absolute Jacobian determinants of the blocks.  Unconstrained parameters are transformed by the identity, which has a unit Jacobian determinant.  This makes it particularly simple to work on the unconstrained scale---we just map unconstrained parameters back to the constrained space using the inverse transforms and add the log absolute determinants of their Jacobians.  For maximum likelihood estimation, the Jacobians can be dropped from the target density with a flag.
+### The common case of constraints via bijections
 
-Stan supplies constraints for variables that are lower bounded (for scales), upper bounded (for log probabilities), range bounded (for probabilities), affine transforms (for non-centered parameterizations), ordered vectors (for cutpoints in ordinal regressions or identifying mixtures), unit vectors (for points on a hypersphere), simplexes (for categorical probability distributions), sum-to-zero vectors (for identifying varying effects), positive-definite symmetric matrices and their Cholesky factors (for covariance or precision matrices), and for unit-diagonal positive-definite matrices and their Cholesky factors (for correlation matrices). The Oryx package, which is native to JAX and built on top of the TensorFlow Probability bijectors package [@dillon2017tensorflow], provides an even wider range of useful transforms than Stan (e.g., softplus, alternative sigmoid cdfs, tanh, autoregressions, and flows, and many many more).
+Mathematically, in the common one-to-one case where $t$ is a smooth bijection onto $C$ (so it has a smooth inverse $f=t^{-1}:C\to\mathbb{R}^N$), given a constrained random variable $\Theta \in C$ with a density $p_\Theta(\theta)$, we can derive the density of $\Phi = f(\Theta)$ as
+$$
+p_\Phi(\phi)
+= p_\Theta(f^{-1}(\phi)) \cdot \left|\det D f^{-1}(\phi)\right|
+= p_\Theta(t(\phi)) \cdot \left|\det Dt(\phi)\right|,
+$$
+where $Df^{-1}(\phi)$ (equivalently $Dt(\phi)$) denotes the Jacobian matrix at $\phi$, and $|\det(\cdot)|$ denotes the absolute value of the determinant. In the univariate case, $\det Df^{-1}(\phi)$ reduces to $(f^{-1})'(\phi)$.
+
+If there is a sequence of variables being transformed one at a time, the overall Jacobian will be block diagonal, with an absolute Jacobian determinant equal to the product of the absolute Jacobian determinants of the blocks. Unconstrained parameters are transformed by the identity, which has a unit Jacobian determinant. This makes it particularly simple to work on the unconstrained scale---we just map unconstrained parameters back to the constrained space using the inverse (constraining) transforms and add the log absolute determinants of their Jacobians. For maximum likelihood estimation, the Jacobians can be dropped from the target density with a flag.
+
+### Transforms as parameterizations (not just “constraints” or “bijectors”)
+
+It can be helpful to think of Stan’s *constraints* and TensorFlow Probability’s *bijectors* as instances of a broader modeling choice: a *parameterization* $t:\mathbb{R}^N\to C$.
+From this viewpoint, the names are a bit misleading: $t$ need not encode a “constraint” (for example, affine maps $t(z)=\mu+Lz$ map $\mathbb{R}^D$ to all of $\mathbb{R}^D$ and are central to non-centered parameterizations), and $t$ need not be one-to-one (for example, the map $t(z)=z/\|z\|$ can give a useful parameterization of distributions on spheres).
+Even for a fixed space $C$, there can be multiple useful parameterizations with different numerical behavior (for example, $\exp$ versus $\mathrm{softplus}$ for $(0,\infty)$, logit versus probit links for $(0,1)$, and stick-breaking versus softmax-style constructions for a simplex).
+
+As long as $C\subseteq \mathbb{R}^D$ is an embedded submanifold of dimension $d$, it admits a canonical notion of $d$-dimensional volume, generalizing the usual notion of volume $d\theta$ on $\mathbb{R}^D$.
+We can think of this volume $d\theta$ as a (possibly improper) unnormalized uniform prior on $C$.
+We can consider probability distributions on $C$ arising from density functions w.r.t. this notion of volume.
+For example, if $C$ is compact (i.e., if it is contained in a ball of some finite radius), we have a canonical notion of uniform distribution.
+A user of a PPL would expect the default density w.r.t. $d\theta$ on the type $C$ to be 1 (so log-density 0) when nothing is specified.
+Further, for intuitive use, any (log-)densities specified by the user on $\theta$ of type $C$ should also be relative to $d\theta$.
+
+Therefore, our goal as PPL designers is to find a density $g^t$ with respect to the volume $d\phi$ on $\mathbb{R}^N$ that induces our canonical volume $d\theta$ on $C$ via $t$ in the sense that, for any integrable function $h:C\to \mathbb{R}$,
+$$
+\int_{\phi\in \mathbb{R}^N} g^t(\phi) h(t(\phi)) d\phi = \int_{\theta\in C} h(\theta) d\theta. 
+$$
+(In technical terms: $g^t\cdot d\phi$ pushes forward to $d\theta$ along $t$.)
+
+### Density corrections beyond one-to-one maps
+
+The Jacobian-determinant correction above is the special case where $t$ is one-to-one. If $t$ is many-to-one, the correction must also account for *redundancy*: how many unconstrained points represent the same constrained value.
+
+Assume that $C\subseteq \mathbb{R}^D$ is an embedded submanifold of dimension $d$.
+Further assume that $t$ is smooth and *regular* in the sense that, at points we care about, small changes in $\phi$ can move $\theta=t(\phi)$ in all $d$ local directions available inside $C$.
+Put differently, let $Dt(\phi)$ denote the Jacobian matrix of $t$ in the coordinates given by the inclusion $C\subseteq \mathbb{R}^D$, and assume that the induced linear map $D^C t(\phi):\mathbb{R}^N\to T_{t(\phi)}C$ is surjective.
+Let $s_1(\phi),\dots,s_d(\phi)$ be the positive singular values of $Dt(\phi)$. Then, define the coarea “Jacobian factor”
+$$
+J_t(\phi) \;=\; \prod_{i=1}^{d} s_i(\phi)\; = \; \sqrt{\det(D^C t(\phi)D^C t(\phi)^\top)},
+$$
+which reduces to $\left|\det Dt(\phi)\right|$ when $N=d$ and $t$ is locally one-to-one. Also define the set of representations (preimages) of a point $\theta\in C$,
+$$
+t^{-1}(\theta)=\{\phi\in\mathbb{R}^N: t(\phi)=\theta\},
+$$
+and the natural volume element $d\phi_\perp$ along the preimage such that $d\theta$ and $d\phi_\perp$ give the orthogonal decomposition of $d\phi$ along $C$ and perpendicular to $C$ within $\mathbb{R}^N$.
+The coarea formula of multivariate calculus then tells us that for any integrable function $k:\mathbb{R}^N\to \mathbb{R}$,
+$$
+\int_{\phi\in \mathbb{R}^N} k(\phi) J_t(\phi) d\phi
+=
+\int_{\theta\in C} 
+\left(\int_{\phi\in t^{-1}(\theta)} k(\phi) d\phi_\perp\right)
+d\theta.
+$$
+In particular, if $h:C\to \mathbb{R}$ is integrable and $g^t_\perp$ is some function that restricts to a probability density on $t^{-1}(\theta)$ for each $\theta\in C$, then
+$$
+\int_{\phi\in \mathbb{R}^N} h(t(\phi)) g^t_\perp(\phi) J_t(\phi) d\phi
+=
+\int_{\theta\in C} 
+h(\theta) 
+\left(\int_{\phi\in t^{-1}(\theta)} g^t_\perp(\phi)d\phi_\perp\right)
+d\theta
+=
+\int_{\theta\in C} 
+h(\theta) 
+d\theta,
+$$
+as desired.
+That is, to induce our desired default volume on $C$, we can use on $\mathbb{R}^N$ the canonical density
+$$
+g^t(\phi)\;=\; J_t(\phi) g^t_\perp(\phi).
+$$
+Consequently, if a model specifies an (unnormalized) density $\tilde{p}(\theta)$ on $C$ relative to the canonical volume on $C$, then an equivalent (unnormalized) log-density target on $\mathbb{R}^N$ is
+$$
+\log \tilde{p}(t(\phi))\;+\;\log J_t(\phi)\;+\;\log g^t_\perp(\phi).
+$$
+
+In particular, if all $t^{-1}(\theta)$ are compact, we can take
+$
+g^t_\perp(\phi)=V(t(\phi))^{-1}
+$
+where the volume $V(\theta)$ is defined as
+$$
+V(\theta)
+=
+\int_{t^{-1}(\theta)} d\phi_\perp.
+$$
+In general, however, there is freedom in the choice of $g^t_\perp$.
+
+Two special cases are worth keeping in mind:
+
+* *One-to-one*: $V(\theta)=1$, so we recover the usual $\log|\det Dt(\phi)|$ correction.
+
+* *$k$-to-one with (almost everywhere) constant $k$*: $V(\theta)=k$ almost everywhere, so we can take $g^t_\perp$ inversely proportional to the volume and the extra term is just $-\log k$, a constant that does not affect MCMC. Example: $t(\phi)=\phi^2$ maps $\mathbb{R}\to(0,\infty)$ and is two-to-one away from $0$.
+
+Overparameterized maps can also have preimages of non-compact positive dimension (e.g., softmax logits without a centering convention, or the $z\mapsto z/\|z\|$ parameterization of unit vectors).
+In such cases one is forced to make some choice of a density $g^t_\perp$
+so that the induced target on $\mathbb{R}^N$ is well defined.
+
+Stan supplies constraints for variables that are lower bounded (for scales), upper bounded (for log probabilities), range bounded (for probabilities), affine transforms (for non-centered parameterizations), ordered vectors (for cutpoints in ordinal regressions or identifying mixtures), unit vectors (for points on a hypersphere), simplices (for categorical probability distributions), sum-to-zero vectors (for identifying varying effects), positive-definite symmetric matrices and their Cholesky factors (for covariance or precision matrices), and for unit-diagonal positive-definite matrices and their Cholesky factors (for correlation matrices). The Oryx package, which is native to JAX and built on top of the TensorFlow Probability bijectors package [@dillon2017tensorflow], provides an even wider range of useful transforms than Stan (e.g., softplus, alternative sigmoid cdfs, tanh, autoregressions, and flows, and many many more).
 
 
 # Coding models in Stan
@@ -555,6 +656,9 @@ The `read` methods of the deserializer read the next variable fromn the sequence
 To support the changes of variables for reporting constrained output, the compiled C++ code exposes the constraining transform and its Jacobians. For initialization from constrained parameters, there is a matching unconstraining transform.  The model class also supplies methods for determining the shape and names of the constrained and unconstrained parameters.
 
 The final component of a compiled Stan model is a function to perform predictive inference as defined by the generated quantities block (this can also be done post-hoc with a new program and generated quantities block).  In particular, the model compiles a generated quantities function that takes a random number generator and produces the output defined in the generated quantities block purely by forward sampling without the need for any automatic differentiation.
+
+
+
 
 
 # Coding models in JAX
