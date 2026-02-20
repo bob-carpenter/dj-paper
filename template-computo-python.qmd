@@ -5,24 +5,28 @@
 @gelman2013bda begin their foundational textbook by factoring Bayesian data analysis into three steps.
 
 1. Design a joint probability distribution for observable data and unobservable parameters.
-2. Perform inference to generate a posterior sample over parameters conditioned on data.
+2. Perform inference to generate a posterior sample over parameters and unobserved data conditioned on observed data.
 3. Evaluate the model fit and what it tells us about our quantities of interest.
 
 The authors further suggest that if the evaluation in step (3) is not sufficient, then one should go back to step (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on evaluating multiple models simultaneously and transparently reporting their exploration and comparison.
 
-A probabilistic programming language (PPL) primarily provides support for coding statistical models defined in step (1) in a way that they can be used for inference in step (2).  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods.  PPLs are typically coupled with posterior analysis and model comparison tools for task (3).
+A probabilistic programming language (PPL) primarily provides support for coding statistical models defined in step (1) in a way that they can be used for inference in step (2).  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods.  PPLs are typically coupled with posterior analysis and model comparison tools for task (3).  In addition, once the log unnormalized density is set up, PPLs can compute other operations such as mode finding, Laplace approximation, and variational inference.
 
-In this paper, we are going to focus on performing the same function as a PPL without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
+In this paper, we are going to focus on specifying models and performing posterior sampling as is done by a PPL, but without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
 
 For step (2), we recommend the Python package Blackjax [@cabezas2024blackjax]. Blackjax includes implementations of Stan's primary inference methods, the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], and Pathfinder variational inference [@zhang2022pathfinder].  Blackjax is being actively maintained and extended, and already includes several other useful algorithms, including microcanonical (aka isokinetic) sampling [@robnik2025metropolis], sequential Monte Carlo (SMC) [@doucet2001introduction], elliptical slice sampling [@murray2010elliptical], generalized HMC (GHMC) [@horowitz1991generalized], and even random-walk Metropolis (RWM) [@hastings1970monte].
 
 For step (3), we recommend the Python package Arviz [@kumar2019arviz].  Arviz provides state-of-the-art convergence monitoring using split, ranked $\widehat{R}$, estimation of bulk and tail effective sample sizes, standard errors, posterior means, standard deviations, and quantiles, as well as approximate leave-one-out (LOO) cross-validation [@vehtari2021rank; @vehtari2017practical].
 
+## Generative modeling
+
+Andrew will add something mentioning generative modeling, unmodeled and modeled data, graphical models
+
 ## Why not just use Stan?
 
 Stan [@carpenter2017stan] is a domain-specific language for expressing differentiable probability densities and posterior predictive quantities.  Stan is a probabilistic programming language in the sense that its variables can be interpreted as random variables.  Stan has been used in almost every area where statistics is applied, and as such, has accumulated an unmatched depth and breadth of training materials around different classes of probabilistic models.  There are textbooks, college classes, and reproducible case studies in all of these areas.  There's a vibrant community with a high volume [discussion forum](https://discourse.mc-stan.org).  The language is still being expanded and so is it's math library.
 
-The Stan project introduced several state of the art gradient-based inference algorithms including the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], Pathfinder variational inference [@zhang2022pathfinder], and black-box nested Laplace approximations [@margossian2023general] as well as posterior analysis tools such as split- and ranked-$\widehat{R}$ and corresponding bulk and tail effective sample size [@vehtari2021rank], leave-one-out cross-validation [@vehtari2017practical], refined simulation-based calibration checks [@talts2018validating], and prior predictive checks [@gabry2019visualization].  It is often used as the basis of methodological developments such as Bayesian workflow [@gelman2020workflow].
+The Stan project introduced several state of the art gradient-based inference algorithms including the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], Pathfinder variational inference [@zhang2022pathfinder], and black-box nested Laplace approximations [@margossian2023general] as well as posterior analysis tools such as split- and ranked-$\widehat{R}$ and corresponding bulk and tail effective sample size [@vehtari2021rank], leave-one-out cross-validation [@vehtari2017practical], refined simulation-based calibration checks [@cook2006validation], and prior predictive checks [@gabry2019visualization].  It is often used as the basis of methodological developments such as Bayesian workflow [@gelman2020workflow].
  
 So why not just use Stan? The first reason is that Stan is largely CPU-bound.  All of its analysis tools and algorithms run on the CPU.  Although there are ways to call individual functions in a Stan program on the GPU (e.g., Cholesky decomposition) and ways to apply map-reduce across multiple cores, this is not enough.  Stan lacks a way to keep computation in-kernel on the GPU or organize inference to enable single-instruction multiple-data (SIMD) parallelism.  Although Stan has been faster than JAX on CPU, it is not competitive on modern hardware [@sountsov2024running; @maskell2024jaxgpu].
 
@@ -33,7 +37,6 @@ The second obstacle to using Stan is the need to learn a second language. While 
 * Stan requires a scripting language like R, Python, and Julia, to combine modeling with data preparation and posterior analysis, rather than providing a seamless single-language experience.  The interface between these languages and Stan is minimal---Stan is just being called as a black box to return samples.
 * There is relatively little tooling to aid with Stan development.  Currently, it's just autocomplete, syntax highlighting, and debug-by-print.  Python, in contrast, has several well supported integrated development environments with tooling for debugging, generating notebooks, integration with chatbots, integration with documentation, automatic refactoring tools, etc.
 * While there is a great deal of tutorial and onboarding material for Stan, it has to split its attention among several interfaces (two interfaces in R and Python and one in Julia).  Taken together, even Stan's extensive documentation is dwarfed by the pedagogical material around scientific, differentiable, and probabilistic computing in Python.  
-
 
 ## Why not just use PyMC or NumPyro?
 
@@ -104,11 +107,17 @@ In this section, we will lay out the precise definition of the Bayesian inferenc
 
 ## Bayesian models
 
-A Bayesian model is nothing more than a joint distribution over parameters $\theta$ and data $y$.  By the chain rule, the posterior distribution of the parameters given the data is given by $p(\theta \mid y) \propto p(\theta, y)$.  Often our density is factored into a prior times a likelihood, $p(\theta \mid y) = p(\theta) \cdot p(y \mid \theta)$, but nothing in Stan or what we are proposing for JAX presupposes a clean factorization.  In fact, our methods can be used to sample from any old unnormalized density---it doesn't have to arise as a Bayesian posterior.
+A Bayesian model is nothing more than a joint distribution over parameters $\theta$ and data $y$.
 
-## Bayesian inference with posterior expectations
+In the simplest version of this formulation, Bayesian inference uses the posterior distribution of the parameters given the data: $p(\theta \mid y) \propto p(\theta, y)$.  Often our density is factored into a prior times a likelihood, $p(\theta \mid y) = p(\theta) \cdot p(y \mid \theta)$, but nothing in Stan or what we are proposing for JAX presupposes a clean factorization.  In fact, our methods can be used to sample from any unnormalized density with finite integral---it doesn't have to arise as a Bayesian posterior.
 
-Bayesian inference involves visualizing and summarizing quantities of interest in the posterior and posterior predictive distributions.  For summaries, we are typically interested in either posterior averages or posterior quantiles of a function of the parameters.  Quantiles are typically used to give us medians and uncertainty intervals, while averages give us everything else. By averaging estimates of quantities of interest derived from parameters weighted by posterior density, we can account for estimation uncertainty into account in our inferences. 
+More generally, if "data" are defined as observable quantities, there can be observed data $y^{\rm obs}$ and unobserved data $y^{\rm mis}$ (short for "missing data" but this can also include latent (unobserved but potentially observable) data, future data, unrecorded past data, etc.), and Bayesian inference uses the posterior distribution of all unobserved quantities conditional on observed data, thus $p(\theta, y^{\rm mis} \mid y^{\rm obs})$.  There is no strict rule for what aspects of a model count as "parameters" and what count as "data."  But Bayesian inference doesn't really care if an unknown quantity is put in the "$\theta$" bin or the "$y^{\rm mis}$" bin; all that matters is what is being conditioned on.
+
+In that case, why not just label everything unknown in a problem as "parameters" and everything observed as "data"?  You can do this; indeed, that's how variables are coded in Stan.  The trouble with using this as a general dividing line is that, the knowledge of what is observed and what is not observed can be logically independent of the model.  For a simple example, start with data $y_1,\dots,y_N$ from a first-order autoregressive model with parameters $a,b,\sigma$.  Now suppose that you want to make predictions for future data, $y_{N+1},\dots,y_{N+10}$.  It would be awkward to label these new data points as parameters, even though they are unknown.
+
+## Bayesian inference with posterior expectations and simulations
+
+Bayesian inference involves visualizing and summarizing quantities of interest in the posterior and posterior predictive distributions.  For summaries, we are typically interested in posterior averages or posterior quantiles of parameters, predictions, or some functions of parameters and data.  Quantiles are typically used to give us medians and uncertainty intervals, while averages give us everything else. By averaging estimates of quantities of interest derived from parameters weighted by posterior density, we can account for estimation uncertainty into account in our inferences. 
 
 Averages over the posterior density are most naturally expressed using expectation notation.  Given a random variable $\Theta \in \mathbb{R}^D$ representing knowledge about the parameters, the expectation of a function $f:\mathbb{R}^D \rightarrow \mathbb{R}$ is given by
 $$
@@ -137,7 +146,6 @@ $$
 p(\tilde{y} \mid y) = \mathbb{E}[p(\tilde{y} \mid \theta) \mid y].
 $$
 
-## Computation with Markov chain Monte Carlo methods
 We can reduce the high-dimensional integration problem to one of sampling from the posterior,
 $$
 \theta^{(m)} \sim p(\theta \mid y).
@@ -154,7 +162,13 @@ $$
 $$
 which justifies the familiar $\mathcal{O}(1/\sqrt{M})$ Monte Carlo error rate and standard-error estimates for averages. Finite-sample concentration bounds are also hold under additional regularity assumptions (e.g., boundedness or sub-exponential tails of $f(\Theta)$), giving us explicit deviation probabilities for $\widehat{I}_M$ around $\mathbb{E}[f(\Theta)\mid y]$ [@gelman2013bda; @paulin2015concentration].
 
-In practice, exact i.i.d. draws from $p(\theta\mid y)$ are rarely available. Fortunately, many weaker sampling schemes still yield consistent estimators of posterior expectations. These include rejection sampling and importance sampling (which produce weighted estimators), sequential Monte Carlo (which propagates and reweights a particle population), and Markov chain Monte Carlo (which constructs a dependent sequence whose stationary distribution is the posterior) [@gelman2013bda; @doucet2001introduction; @roberts2004mcmc].
+In practice, we often summarize Bayesian inference using posterior simulations, without deciding ahead of time what expectations or other posterior summaries will be needed.  So it is convenient that, with a large number of independent draws from the posterior distribution of all parameters and unobserved data of potential interest, we can use these to estimate arbitrary expectations, as well as obtain an estimate of their Monte Carlo uncertainty.
+
+In addition, posterior simulations can be used for multiple imputation of missing data [@rubin1996multiplerubin] and to understand the fitted model.  For example, in a logistic regression model, $Pr(y=1|x)=\mbox{logit}^{-1}(a + bx)$,  one can make a scatterplot of posterior simulations of $(a,b)$, along with a graph of data $(x,y)_n, n=1,\dots,N$ along with curves, $\mbox{logit}^{-1}(a + bx)$ corresponding to those draws of $(a,b)$.
+
+## Computation with Markov chain Monte Carlo methods
+
+In practice, exact independent draws from $p(\theta\mid y)$ are rarely available. Fortunately, many weaker sampling schemes still yield consistent estimators of posterior expectations. These include rejection sampling and importance sampling (which produce weighted estimators), sequential Monte Carlo (which propagates and reweights a particle population), and Markov chain Monte Carlo (which constructs a dependent sequence whose stationary distribution is the posterior) [@gelman2013bda; @doucet2001introduction; @roberts2004mcmc].
 
 The idea of Markov chain Monte Carlo (MCMC) is that *correlated* draws from an ergodic Markov chain with invariant distribution $p(\theta\mid y)$ can still be used in the same sample-average estimator $\widehat{I}_M$. Under standard conditions (e.g., Harris ergodicity) that are easily satisfied in practical applications, the Markov chain ergodic theorem guarantees $\widehat{I}_M \to \mathbb{E}[f(\Theta)\mid y]$ even though the draws are dependent [@roberts2004mcmc].
 
@@ -196,7 +210,7 @@ To ground the discussion, let's consider the concrete example of coding a linear
 
 ## A multivariate linear regression model
 
-We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are unit scale so that we can assume a weakly informative prior independently over our parameters,
+We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are approximately on unit scale so that we can consider the following prior as weakly informative:
 $$
 \alpha \sim \textrm{normal}(0, 5)
 \qquad
@@ -319,12 +333,12 @@ The simulated parameter values are as follows.
 print(f"alpha:{params['alpha']:6.2f};   beta[0]:{params['beta'][0]:6.2f};   beta[1]:{params['beta'][1]:6.2f};   sigma:{params['sigma']:6.2f}")
 ```
 
-In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $Y \sim \textrm{normal}(\alpha + x \cdot beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[Y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
+In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $y \sim \textrm{normal}(\alpha + x \cdot beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
  
 ```{python python-code}
 #| code-fold: true
 #| label: fig-sim-surface-plus-x
-#| fig-cap: "*Heatmap of the expected value surface `E[Y | x] = alpha + x @ beta` over 4 marginal standard deviations in `x`, where `x[0] ~ normal(0, 1)` and `x[1] ~ chi_sq(1)`.  The observed covariates overlaid as white disks.*"
+#| fig-cap: "*Heatmap of the expected value surface `E[y | x] = alpha + x @ beta` over 4 marginal standard deviations in `x`, where `x[0] ~ normal(0, 1)` and `x[1] ~ chi_sq(1)`.  The observed covariates overlaid as white disks.*"
 
 import numpy as np
 import pandas as pd
@@ -366,7 +380,7 @@ plot_surface_plus_obs = (
         size=2.8,
         alpha=1.0,
     )
-    + pn.labs(x="x[0]", y="x[1]", fill="E[Y | x]")
+    + pn.labs(x="x[0]", y="x[1]", fill="E[y | x]")
     + pn.theme(
         panel_background=pn.element_rect(fill="white"),
         plot_background=pn.element_rect(fill="white"),
