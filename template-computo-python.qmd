@@ -883,12 +883,143 @@ def linear_regression(x, y, x_new):
     return model(parameters, log_density, generate)
 ```
 
+After calling this function with data, the resulting `model` object is feature
+equivalent to all the manual code written above for transforming parameters and
+performing initialization. It mirrors the C++ object produced by Stan (also the
+model object produced by BridgeStan [@roualdes2023bridgestan]). Because these
+simple functions generate fully JAX-embedded code, the log density function can
+be automatically differentiated and all of the functions can be just-in-time
+compiled.
 
-The resulting `model` object mirrors the C++ object produced by Stan and also the model object produced by BridgeStan [@roualdes2023bridgestan].  Because these simple functions generate fully JAX-embedded code, the log density function can be automatically differentiated and all of the functions can be just-in-time compiled.
+<!-- TODO(bmw): should we show the contents of model? or defer that to API doc of the actual package -->
 
-The parameter declarations with constraints, such as `positive`.  That allows it to be used for inference by `blackjax`, which has ported NUTS and ADVI from Stan into JAX and much much more.
+## Abstracting parameter transformations
+
+In order to automate the transformation functionality that were coded manually above, we introduce
+the idea of a "parameter specification"  (the `parameters` dictionary in the code) which provides
+all the information about how the parameters should be transformed. 
+The leaves of this parameter specification are simple classes like `positive`, 
+which is reproduced here in full:
+
+```python
+class positive(ParameterConstraint):
+    def __init__(self, shape=(), dtype=jnp.float32):
+        self.shape = shape
+        self.dtype = dtype
+
+    def inverse_transform(self, x):
+        return jnp.exp(x)
+
+    def transform(self, y):
+        return jnp.log(y)
+
+    def jacobian(self, x):
+        return jnp.sum(x)
+```
+
+The densejax package provides a menu of existing transforms, but the above class is designed to be simple
+enough to be easily extensible. 
+
+The `real` class is simply a transform that has the identity for both sides of the transformation;
+we rely on JAX's jit compiler to remove any overhead from this implementation style. 
+
+Turning this parameter spec into functions that perform the inverse transforms,
+transforms, and (possibly random) initialization is trivial. All of these reduce
+to simple map-like operations over the specification and the provided parameter
+values where required.
+
+The majority of the code in densejax consists of these transformation classes, utility functions
+consuming them, and the small wrappers provided for common distributions like `normal` as seen above.
 
 
+## Simplifying inference
+
+The `model` object remains general enough for use in any gradient based sampler implemented in JAX;
+the one-liner
+```python
+log_posterior_transformed = jax.jit(model.log_density)
+```
+would be enough to use `blackjax` in the same manner as above. 
+
+However, bundling more of the desired functionality into one object allows for more turn-key helpers. 
+Consider the following new definition of `nuts_sample`:
+
+```python
+def nuts_sample(key, model, num_draws, init=None):
+    log_density = jax.jit(model.log_density)
+
+    init_key, warmup_key, sample_key = jrd.split(key, 3)
+
+    if init is None:
+        init_position = model.initialize_random(init_key)
+    else:
+        init_position = model.initialize(init)
+
+    warmup = blackjax.window_adaptation(blackjax.nuts, log_density)
+    (state, params), _ = warmup.run(warmup_key, init_position, num_steps=num_draws)
+
+    kernel = blackjax.nuts(log_density, **params).step
+    constrain = jax.jit(model.inv_transform)
+    @jax.jit
+    def one_step(state, key):
+        state, _ = kernel(key, state)
+        return state, constrain(**state.position)
+
+    keys = jrd.split(sample_key, num_draws)
+    _, draws = jax.lax.scan(one_step, state, keys)
+
+    return draws
+```
+
+This version of `nuts_sample` has the advantage over the previous
+that both the input initial values *and the returned draws* are in
+the model space. The user on the outside does not need to worry about
+transforming the initial values and inverse-transforming the results.
+
+We could have written `nuts_sample` to do this for us before, if we had
+been willing to pass it additional arguments; the `model` class makes it
+very natural to define the most useful version out of the box.
+
+Given these snippets, one can recreate the complete sampling workflow from the prior section
+with the following brief code:
+
+<!-- TODO(bmw): make sure this is all executable at some point when densejax really exists -->
+```python
+seed = 441_582
+key = jrd.key(seed)
+
+model = linear_regression(x, y, x_new)
+num_draws = 1_000
+draws = nuts_sample(key, model, num_draws)
+
+mean = functools.partial(jax.tree.map(functools.partial(jnp.mean, axis=0)))
+std = functools.partial(jax.tree.map(functools.partial(jnp.mean, axis=0)))
+
+print(f"{mean(draws)=}")
+print(f"{std(draws)=}")
+
+# posterior predictive
+key, gq_keys = jrd.split(key, 1+num_draws)
+pred_draws = jax.vmap(model.forward, in_axes=(0, 0))(keys,draws)
+
+print(f"{mean(pred_draws)=}")
+print(f"{std(draws)=}")
+```
+
+<!-- TODO(bmw): show multi chain -->
+<!-- TODO(bmw): show arviz integration:
+
+If we only have one chain, we need the following incantation to
+pad a chain dimension to the start.
+
+```python
+az.summary(jax.tree.map(functools.partial(jnp.expand_dims,axis=0),draws))
+```
+
+If we had multiple chains, this
+would be something like a np.vstack (or just the result of pmap, maybe?)
+
+ -->
 
 # References {.unnumbered}
 
