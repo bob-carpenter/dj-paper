@@ -5,14 +5,14 @@
 @gelman2013bda begin their foundational textbook by factoring Bayesian data analysis into three steps.
 
 1. Design a joint probability distribution for observable data and unobservable parameters.
-2. Perform inference to generate a posterior sample over parameters conditioned on data.
+2. Perform inference to generate a posterior sample over parameters and unobserved data conditioned on observed data.
 3. Evaluate the model fit and what it tells us about our quantities of interest.
 
-The authors further suggest that if the evaluation in step (3) is not sufficient, then one should go back to step (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on evaluating multiple models simultaneously and transparently reporting their exploration and comparison.
+The authors further suggest that if the evaluation in step (3) is not sufficient, then one should go back to step (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on fitting multiple models and transparently reporting their exploration and comparison.
 
-A probabilistic programming language (PPL) primarily provides support for coding statistical models defined in step (1) in a way that they can be used for inference in step (2).  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods.  PPLs are typically coupled with posterior analysis and model comparison tools for task (3).
+A probabilistic programming language (PPL) primarily provides support for coding statistical models defined in step (1) in a way that they can be used for inference in step (2).  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods.  PPLs are typically coupled with posterior analysis and model comparison tools for task (3).  In addition, once the log unnormalized density is set up, PPLs can compute other operations such as mode finding, Laplace approximation, and variational inference.
 
-In this paper, we are going to focus on performing the same function as a PPL without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
+In this paper, we are going to focus on specifying models and performing posterior sampling as is done by a PPL, but without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
 
 For step (2), we recommend the Python package Blackjax [@cabezas2024blackjax]. Blackjax includes implementations of Stan's primary inference methods, the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], and Pathfinder variational inference [@zhang2022pathfinder].  Blackjax is being actively maintained and extended, and already includes several other useful algorithms, including microcanonical (aka isokinetic) sampling [@robnik2025metropolis], sequential Monte Carlo (SMC) [@doucet2001introduction], elliptical slice sampling [@murray2010elliptical], generalized HMC (GHMC) [@horowitz1991generalized], and even random-walk Metropolis (RWM) [@hastings1970monte].
 
@@ -22,7 +22,7 @@ For step (3), we recommend the Python package Arviz [@kumar2019arviz].  Arviz pr
 
 Stan [@carpenter2017stan] is a domain-specific language for expressing differentiable probability densities and posterior predictive quantities.  Stan is a probabilistic programming language in the sense that its variables can be interpreted as random variables.  Stan has been used in almost every area where statistics is applied, and as such, has accumulated an unmatched depth and breadth of training materials around different classes of probabilistic models.  There are textbooks, college classes, and reproducible case studies in all of these areas.  There's a vibrant community with a high volume [discussion forum](https://discourse.mc-stan.org).  The language is still being expanded and so is it's math library.
 
-The Stan project introduced several state of the art gradient-based inference algorithms including the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], Pathfinder variational inference [@zhang2022pathfinder], and black-box nested Laplace approximations [@margossian2023general] as well as posterior analysis tools such as split- and ranked-$\widehat{R}$ and corresponding bulk and tail effective sample size [@vehtari2021rank], leave-one-out cross-validation [@vehtari2017practical], refined simulation-based calibration checks [@talts2018validating], and prior predictive checks [@gabry2019visualization].  It is often used as the basis of methodological developments such as Bayesian workflow [@gelman2020workflow].
+The Stan project introduced several state of the art gradient-based inference algorithms including the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], Pathfinder variational inference [@zhang2022pathfinder], and black-box nested Laplace approximations [@margossian2023general] as well as posterior analysis tools such as split- and ranked-$\widehat{R}$ and corresponding bulk and tail effective sample size [@vehtari2021rank], leave-one-out cross-validation [@vehtari2017practical], refined simulation-based calibration checks [@cook2006validation], and prior predictive checks [@gabry2019visualization].  It is often used as the basis of methodological developments such as Bayesian workflow [@gelman2020workflow].
  
 So why not just use Stan? The first reason is that Stan is largely CPU-bound.  All of its analysis tools and algorithms run on the CPU.  Although there are ways to call individual functions in a Stan program on the GPU (e.g., Cholesky decomposition) and ways to apply map-reduce across multiple cores, this is not enough.  Stan lacks a way to keep computation in-kernel on the GPU or organize inference to enable single-instruction multiple-data (SIMD) parallelism.  Although Stan has been faster than JAX on CPU, it is not competitive on modern hardware [@sountsov2024running; @maskell2024jaxgpu].
 
@@ -33,7 +33,6 @@ The second obstacle to using Stan is the need to learn a second language. While 
 * Stan requires a scripting language like R, Python, and Julia, to combine modeling with data preparation and posterior analysis, rather than providing a seamless single-language experience.  The interface between these languages and Stan is minimal---Stan is just being called as a black box to return samples.
 * There is relatively little tooling to aid with Stan development.  Currently, it's just autocomplete, syntax highlighting, and debug-by-print.  Python, in contrast, has several well supported integrated development environments with tooling for debugging, generating notebooks, integration with chatbots, integration with documentation, automatic refactoring tools, etc.
 * While there is a great deal of tutorial and onboarding material for Stan, it has to split its attention among several interfaces (two interfaces in R and Python and one in Julia).  Taken together, even Stan's extensive documentation is dwarfed by the pedagogical material around scientific, differentiable, and probabilistic computing in Python.  
-
 
 ## Why not just use PyMC or NumPyro?
 
@@ -57,7 +56,6 @@ Stan has an extensive library of special mathematical and statistical functions,
 
 * *Probability distributions*:  Stan implements dozens of probability distributions, including most (but not all) of the ones in common use for statistical models.  While the basics are available through JAX's NumPy and SciPy modules (often redundantly), the go-to library is TensorFlow Probability (TFP) (e.g., [`tfp.distributions`](https://www.tensorflow.org/probability/api_docs/python/tfp/distributions); for JAX specifically, `tfp.substrates.jax.distributions`) for probability-related functions (e.g., probability density functions, probability mass functions, and cumulative distribution functions).  In some cases, there are also quantile functions, which are poorly supported in Stan.  The bottom line is that the native Google-supported *JAX* ecosystem provides a *better* selection of well supported probability functions and random number generators.  There is even wider support beyond native JAX and TensorFlow, including the probabilistic programming language NumPyro [@phan2019composable] and Google DeepMind's library Distrax [@deepmind2020jax].
 
-
 * *Complex-valued functions*: JAX and Stan both have core library support for complex-valued functions built-in, including fast Fourier transforms and complex matrix operations.
 
 * *Neural networks*: JAX is integrated tightly with a range of neural network constructions through the Flax package [@heek2020github], which is maintained by a team at Google DeepMind, but is not an official Google product like TensorFlow or JAX.  It supports everything from simple multilayer perceptrons and convolutional neural networks to autoencoders and multi-head attention.
@@ -79,14 +77,12 @@ Stan has an extensive library of special mathematical and statistical functions,
 
     * *Stochastic differential equation (SDE) solvers*:  Stan has no support for stochastic differential equations. The Diffrax package [@kidger2021on], in addition to providing stiff ODE solvers, also supports traditional SDE and SPDE solvers (Eueler-Maruyama, Milstein, Stratonovich/Itô) through spatial discretization.
 
-
 With the caveat that functionality is spread across multiple libraries (core JAX, TFP, and smaller add-ons such as `quadax` for adaptive quadrature), the special function, probability distribution, and transform coverage available in the JAX ecosystem is broadly comparable to Stan's, and in some areas deeper.  When it comes to even more complicated functions like PDE and SDE solvers and neural networks, Stan isn't even in the game.  The JAX-based PPL NumPyro can also make use of these JAX packages in many cases, especially if users are willing to forego its underlying graphical model abstraction.
 
 
 ## Constrained parameter support in JAX
 
 Stan provides built-in transforms that map an unconstrained vector in $\mathbb{R}^d$ into a desired constrained space (e.g., a $(d+1)$-simplex), along with the corresponding change-of-variables adjustments to the density. These are custom implementations with analytic Jacobian-adjoint product gradients and vectorized application to containers.
-
 
 The Oryx transform library in TensorFlow is built on top of the TFP bijector library ([`tfp.bijectors`](https://www.tensorflow.org/probability/api_docs/python/tfp/bijectors)) [@dillon2017tensorflow], which can also be used directly.  TFP bijectors provide all of the transforms provided by Stan and many more including softplus, various cdfs and hyperbolic tangent as replacements for inverse-logit, more multivariate transforms such as cumulative sums and Householder factorizations, as well as trained transforms like RealNVP normalizing flows [@dinh2016density].  Oryx additionally allows transforms to be written down directly in such a way that Oryx can automatically calculate inverse transforms and Jacobian determinants of inverse transforms.
 
@@ -104,11 +100,33 @@ In this section, we will lay out the precise definition of the Bayesian inferenc
 
 ## Bayesian models
 
-A Bayesian model is nothing more than a joint distribution over parameters $\theta$ and data $y$.  By the chain rule, the posterior distribution of the parameters given the data is given by $p(\theta \mid y) \propto p(\theta, y)$.  Often our density is factored into a prior times a likelihood, $p(\theta \mid y) = p(\theta) \cdot p(y \mid \theta)$, but nothing in Stan or what we are proposing for JAX presupposes a clean factorization.  In fact, our methods can be used to sample from any old unnormalized density---it doesn't have to arise as a Bayesian posterior.
+A Bayesian model is a joint distribution over parameters $\theta$ and data $y$.
 
-## Bayesian inference with posterior expectations
+In the simplest version of this formulation, Bayesian inference uses the posterior distribution of the parameters given the data: $p(\theta \mid y) \propto p(\theta, y)$.  Often our density is factored into a prior times a likelihood, $p(\theta \mid y) = p(\theta) \cdot p(y \mid \theta)$, but nothing in Stan or what we are proposing for JAX presupposes a clean factorization.  In fact, our methods can be used to sample from any unnormalized density with finite integral---it doesn't have to arise as a Bayesian posterior.
 
-Bayesian inference involves visualizing and summarizing quantities of interest in the posterior and posterior predictive distributions.  For summaries, we are typically interested in either posterior averages or posterior quantiles of a function of the parameters.  Quantiles are typically used to give us medians and uncertainty intervals, while averages give us everything else. By averaging estimates of quantities of interest derived from parameters weighted by posterior density, we can account for estimation uncertainty into account in our inferences. 
+More generally, if "data" are defined as observable quantities, there can be observed data $y^{\rm obs}$ and unobserved data $y^{\rm mis}$ (short for "missing data" but this can also include latent (unobserved but potentially observable) data, future data, unrecorded past data, etc.), and Bayesian inference uses the posterior distribution of all unobserved quantities conditional on observed data, thus $p(\theta, y^{\rm mis} \mid y^{\rm obs})$.  There is no strict rule for what aspects of a model count as "parameters" and what count as "data."  But Bayesian inference doesn't really care if an unknown quantity is put in the "$\theta$" bin or the "$y^{\rm mis}$" bin; all that matters is what is being conditioned on.
+
+In that case, why not just label everything unknown in a problem as "parameters" and everything observed as "data"?  You can do this; indeed, that's how variables are coded in Stan.  The trouble with using this as a general dividing line is that, the knowledge of what is observed and what is not observed can be logically independent of the model.  For a simple example, start with data $y_1,\dots,y_N$ from a first-order autoregressive model with parameters $a,b,\sigma$.  Now suppose that you want to make predictions for future data, $y_{N+1},\dots,y_{N+10}$.  It would be awkward to label these new data points as parameters, even though they are unknown.
+
+## Generative modeling
+
+In Bayesian terminology, the joint distribution, $p(\theta,y) = p(\theta)p(y \mid \theta)$, is a \emph{generative model}, because a random $\theta$ can be generated from the prior and a random $y$ can be generated from the data distribution. For complicated models the generation process can be further divided; for example, in a hierarchical model with local parameters $\alpha$ and hyperparameters $\phi$, so that $\theta=(\phi, \alpha)$, the joint distribution can be factored as $p(\phi)p(\alpha \mid \phi)p(\theta \mid \phi,\alpha)$ which corresponds to the generated process in which $\phi$, $\alpha$, and $y$ are simulated in order.  As models become even more complicated, it can be helpful to express the factorization as a directed acyclic graph, and the joint distribution is called a \emph{graphical model}.
+
+## Unmodeled data
+
+So far we have discussed parameters $\theta$, observed data $y^{\rm obs}$, and latent or unobserve data $y^{\rm mis}$.  Bayesian models typically also include \emph{unmodeled data}, for example the sample size and predictors in a regression model.  If we write all the unmodeled data as $x$, then the posterior is $p(\theta, y^{\rm mis} \mid y^{\rm obs}, x)$.  This is not a full generative model because there is no distribution for $x$.
+
+Different probabilistic programming languages handle unmodeled data in different ways.
+
+A Stan program computes the target function---the unnormalized log posterior density function, and there is no logical distinction between $y^{\rm obs}$ and $x$:  both are input to the program as data.  Indeed, there is no logical distinction between $\theta$ and $y^{\rm mis}$, although for computational efficiency it is best to simulate $y^{\rm mis}$ in the generated quantities block if possible.
+
+In contrast, a PyMC program specifies a graphical model for $(\theta,y \mid x)$, and it can be run to simulate any subset of $(\theta,y)$, conditional on $x$ and whatever information is passed in as data:  for example, specify nothing but $x$ and it will simulate from the joint distribution; specify $\theta$ and $x$ and it will simulate $y$ from the data model; specify $y$ and $x$ and it will simulate $\theta$ from the posterior.
+
+In any probabilistic programming language, you need to specify the unmodeled data.  But it is also possible, and often recommended, to expand to include a model for $x$.
+
+## Bayesian inference with posterior expectations and simulations
+
+Bayesian inference involves visualizing and summarizing quantities of interest in the posterior and posterior predictive distributions.  For summaries, we are typically interested in posterior averages or posterior quantiles of parameters, predictions, or some functions of parameters and data.  Quantiles are typically used to give us medians and uncertainty intervals, while averages give us everything else. By averaging estimates of quantities of interest derived from parameters weighted by posterior density, we can account for estimation uncertainty into account in our inferences. 
 
 Averages over the posterior density are most naturally expressed using expectation notation.  Given a random variable $\Theta \in \mathbb{R}^D$ representing knowledge about the parameters, the expectation of a function $f:\mathbb{R}^D \rightarrow \mathbb{R}$ is given by
 $$
@@ -137,8 +155,6 @@ $$
 p(\tilde{y} \mid y) = \mathbb{E}[p(\tilde{y} \mid \theta) \mid y].
 $$
 
-
-## Computation with Markov chain Monte Carlo methods
 We can reduce the high-dimensional integration problem to one of sampling from the posterior,
 $$
 \theta^{(m)} \sim p(\theta \mid y).
@@ -155,8 +171,13 @@ $$
 $$
 which implies the familiar $\mathcal{O}(1/\sqrt{M})$ Monte Carlo error rate. Finite-sample concentration bounds  also hold under additional regularity assumptions (e.g., boundedness or sub-exponential tails of $f(\Theta)$), giving us explicit deviation probabilities for $\widehat{I}_M$ around $\mathbb{E}[f(\Theta)\mid y]$ [@gelman2013bda; @paulin2015concentration].
 
-In practice, exactly independent draws from $p(\theta\mid y)$ are rarely available. Fortunately, many less-demanding sampling schemes still give estimators that converge to the correct posterior expectations.
-These include rejection sampling; importance sampling (which uses weights); sequential Monte Carlo (which propagates and reweights a particle population); and Markov chain Monte Carlo (which constructs a dependent sequence whose stationary distribution is the posterior) [@gelman2013bda; @doucet2001introduction; @roberts2004mcmc].
+In practice, we often summarize Bayesian inference using posterior simulations, without deciding ahead of time what expectations or other posterior summaries will be needed.  So it is convenient that, with a large number of independent draws from the posterior distribution of all parameters and unobserved data of potential interest, we can use these to estimate arbitrary expectations, as well as obtain an estimate of their Monte Carlo uncertainty.
+
+In addition, posterior simulations can be used for multiple imputation of missing data [@rubin1996multiple] and to understand the fitted model.  For example, in a logistic regression model, $Pr(y=1|x)=\mbox{logit}^{-1}(a + bx)$,  one can make a scatterplot of posterior simulations of $(a,b)$, along with a graph of data $(x,y)_n, n=1,\dots,N$ along with curves, $\mbox{logit}^{-1}(a + bx)$ corresponding to those draws of $(a,b)$.
+
+## Computation with Markov chain Monte Carlo methods
+
+In practice, exact independent draws from $p(\theta\mid y)$ are rarely available. Fortunately, many weaker sampling schemes still yield consistent estimators of posterior expectations. These include rejection sampling and importance sampling (which produce weighted estimators), sequential Monte Carlo (which propagates and reweights a particle population), and Markov chain Monte Carlo (which constructs a dependent sequence whose stationary distribution is the posterior) [@gelman2013bda; @doucet2001introduction; @roberts2004mcmc].
 
 
 The idea of Markov chain Monte Carlo (MCMC) is that *correlated* draws from an ergodic Markov chain whose invariant (stationary) distribution is $p(\theta\mid y)$ can still be used in the same sample-average estimator $\widehat{I}_M$.
@@ -297,7 +318,7 @@ To ground the discussion, let's consider the concrete example of coding a linear
 
 ## A multivariate linear regression model
 
-We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are unit scale so that we can assume a weakly informative prior independently over our parameters,
+We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are approximately on unit scale so that we can consider the following prior as weakly informative:
 $$
 \alpha \sim \textrm{normal}(0, 5)
 \qquad
@@ -420,12 +441,12 @@ The simulated parameter values are as follows.
 print(f"alpha:{params['alpha']:6.2f};   beta[0]:{params['beta'][0]:6.2f};   beta[1]:{params['beta'][1]:6.2f};   sigma:{params['sigma']:6.2f}")
 ```
 
-In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $Y \sim \textrm{normal}(\alpha + x \cdot beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[Y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
+In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $y \sim \textrm{normal}(\alpha + x \cdot beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
  
 ```{python python-code}
 #| code-fold: true
 #| label: fig-sim-surface-plus-x
-#| fig-cap: "*Heatmap of the expected value surface `E[Y | x] = alpha + x @ beta` over 4 marginal standard deviations in `x`, where `x[0] ~ normal(0, 1)` and `x[1] ~ chi_sq(1)`.  The observed covariates overlaid as white disks.*"
+#| fig-cap: "*Heatmap of the expected value surface `E[y | x] = alpha + x @ beta` over 4 marginal standard deviations in `x`, where `x[0] ~ normal(0, 1)` and `x[1] ~ chi_sq(1)`.  The observed covariates overlaid as white disks.*"
 
 import numpy as np
 import pandas as pd
@@ -467,7 +488,7 @@ plot_surface_plus_obs = (
         size=2.8,
         alpha=1.0,
     )
-    + pn.labs(x="x[0]", y="x[1]", fill="E[Y | x]")
+    + pn.labs(x="x[0]", y="x[1]", fill="E[y | x]")
     + pn.theme(
         panel_background=pn.element_rect(fill="white"),
         plot_background=pn.element_rect(fill="white"),
@@ -984,12 +1005,143 @@ def linear_regression(x, y, x_new):
     return model(parameters, log_density, generate)
 ```
 
+After calling this function with data, the resulting `model` object is feature
+equivalent to all the manual code written above for transforming parameters and
+performing initialization. It mirrors the C++ object produced by Stan (also the
+model object produced by BridgeStan [@roualdes2023bridgestan]). Because these
+simple functions generate fully JAX-embedded code, the log density function can
+be automatically differentiated and all of the functions can be just-in-time
+compiled.
 
-The resulting `model` object mirrors the C++ object produced by Stan and also the model object produced by BridgeStan [@roualdes2023bridgestan].  Because these simple functions generate fully JAX-embedded code, the log density function can be automatically differentiated and all of the functions can be just-in-time compiled.
+<!-- TODO(bmw): should we show the contents of model? or defer that to API doc of the actual package -->
 
-The parameter declarations with constraints, such as `positive`.  That allows it to be used for inference by `blackjax`, which has ported NUTS and ADVI from Stan into JAX and much much more.
+## Abstracting parameter transformations
+
+In order to automate the transformation functionality that were coded manually above, we introduce
+the idea of a "parameter specification"  (the `parameters` dictionary in the code) which provides
+all the information about how the parameters should be transformed. 
+The leaves of this parameter specification are simple classes like `positive`, 
+which is reproduced here in full:
+
+```python
+class positive(ParameterConstraint):
+    def __init__(self, shape=(), dtype=jnp.float32):
+        self.shape = shape
+        self.dtype = dtype
+
+    def inverse_transform(self, x):
+        return jnp.exp(x)
+
+    def transform(self, y):
+        return jnp.log(y)
+
+    def jacobian(self, x):
+        return jnp.sum(x)
+```
+
+The densejax package provides a menu of existing transforms, but the above class is designed to be simple
+enough to be easily extensible. 
+
+The `real` class is simply a transform that has the identity for both sides of the transformation;
+we rely on JAX's jit compiler to remove any overhead from this implementation style. 
+
+Turning this parameter spec into functions that perform the inverse transforms,
+transforms, and (possibly random) initialization is trivial. All of these reduce
+to simple map-like operations over the specification and the provided parameter
+values where required.
+
+The majority of the code in densejax consists of these transformation classes, utility functions
+consuming them, and the small wrappers provided for common distributions like `normal` as seen above.
 
 
+## Simplifying inference
+
+The `model` object remains general enough for use in any gradient based sampler implemented in JAX;
+the one-liner
+```python
+log_posterior_transformed = jax.jit(model.log_density)
+```
+would be enough to use `blackjax` in the same manner as above. 
+
+However, bundling more of the desired functionality into one object allows for more turn-key helpers. 
+Consider the following new definition of `nuts_sample`:
+
+```python
+def nuts_sample(key, model, num_draws, init=None):
+    log_density = jax.jit(model.log_density)
+
+    init_key, warmup_key, sample_key = jrd.split(key, 3)
+
+    if init is None:
+        init_position = model.initialize_random(init_key)
+    else:
+        init_position = model.initialize(init)
+
+    warmup = blackjax.window_adaptation(blackjax.nuts, log_density)
+    (state, params), _ = warmup.run(warmup_key, init_position, num_steps=num_draws)
+
+    kernel = blackjax.nuts(log_density, **params).step
+    constrain = jax.jit(model.inv_transform)
+    @jax.jit
+    def one_step(state, key):
+        state, _ = kernel(key, state)
+        return state, constrain(**state.position)
+
+    keys = jrd.split(sample_key, num_draws)
+    _, draws = jax.lax.scan(one_step, state, keys)
+
+    return draws
+```
+
+This version of `nuts_sample` has the advantage over the previous
+that both the input initial values *and the returned draws* are in
+the model space. The user on the outside does not need to worry about
+transforming the initial values and inverse-transforming the results.
+
+We could have written `nuts_sample` to do this for us before, if we had
+been willing to pass it additional arguments; the `model` class makes it
+very natural to define the most useful version out of the box.
+
+Given these snippets, one can recreate the complete sampling workflow from the prior section
+with the following brief code:
+
+<!-- TODO(bmw): make sure this is all executable at some point when densejax really exists -->
+```python
+seed = 441_582
+key = jrd.key(seed)
+
+model = linear_regression(x, y, x_new)
+num_draws = 1_000
+draws = nuts_sample(key, model, num_draws)
+
+mean = functools.partial(jax.tree.map(functools.partial(jnp.mean, axis=0)))
+std = functools.partial(jax.tree.map(functools.partial(jnp.mean, axis=0)))
+
+print(f"{mean(draws)=}")
+print(f"{std(draws)=}")
+
+# posterior predictive
+key, gq_keys = jrd.split(key, 1+num_draws)
+pred_draws = jax.vmap(model.forward, in_axes=(0, 0))(keys,draws)
+
+print(f"{mean(pred_draws)=}")
+print(f"{std(draws)=}")
+```
+
+<!-- TODO(bmw): show multi chain -->
+<!-- TODO(bmw): show arviz integration:
+
+If we only have one chain, we need the following incantation to
+pad a chain dimension to the start.
+
+```python
+az.summary(jax.tree.map(functools.partial(jnp.expand_dims,axis=0),draws))
+```
+
+If we had multiple chains, this
+would be something like a np.vstack (or just the result of pmap, maybe?)
+
+ -->
 
 # References {.unnumbered}
 
