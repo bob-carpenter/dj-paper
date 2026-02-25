@@ -219,7 +219,9 @@ To ground the discussion, let's consider the concrete example of coding a linear
 
 ## A multivariate linear regression model
 
-We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are approximately on unit scale so that we can consider the following prior as weakly informative:
+We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariate
+vectors $x_n \in \mathbb{R}^{P}$, assembled into a vector $y \in \mathbb{R}^N$ and a design matrix
+$x \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of an intercept $\alpha \in \mathbb{R}$, regression coefficients (aka slopes) $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are approximately on unit scale so that we can consider the following prior as weakly informative:
 $$
 \alpha \sim \textrm{normal}(0, 5)
 \qquad
@@ -256,7 +258,7 @@ p^\textrm{unc}(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
 $$
 On the log scale, where we operate to prevent underflow and maintain precision, we have
 $$
-\log p(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
+\log p^\textrm{unc}(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
 = \log p(\alpha, \beta, \exp(\sigma^\textrm{unc}) \mid x, y) + \sigma^\textrm{unc}.
 $$
 
@@ -265,26 +267,7 @@ $$
 
 Here's an example Stan program defining a linear regression, which we have placed into the file `linear-regression.stan`. 
 ```stan
-data {
-  int<lower=0> N, N_new, P;
-  matrix[N, P] x;
-  vector[N] y;
-  matrix[N_new, P] x_new;
-}
-parameters {
-  real alpha;
-  vector[P] beta;
-  real<lower=0> sigma;
-}
-model {
-  alpha ~ normal(0, 5);
-  beta ~ normal(0, 2.5);
-  sigma ~ exponential(0.5);
-  y ~ normal(alpha + x * beta, sigma);
-}
-generated quantities {
-  array[N_new] real y_new = normal_rng(alpha + x_new * beta, sigma);
-}
+{{< include linear-regression.stan verbatim=true >}}
 ```
 
 Stan is very flexible.   For example, if `y` were binary data and we wanted to fit a logistic regression, `y` would be declared as `array[N] int<lower=0, upper=1>` and `normal()` would be replaced with `bernoulli_logit()` (and similarly for the generated quantities).
@@ -295,7 +278,7 @@ To ease the transition to JAX, note that the distribution statements in the mode
   target += normal_lupdf(alpha | 0, 5);
   target += normal_lupdf(beta | 0, 2.5);
   target += lognormal_lupdf(sigma | 0, 1);
-  target += normal_lupdf(alpha + x * beta, sigma);
+  target += normal_lupdf(y | alpha + x * beta, sigma);
 ```
 
 Here, the `_lupdf` indicates a log (`l`), unnormalized (`u`), probability density function (`pdf`).  For probability mass functions, replace `pdf` with `pmf`; to preserve normalizing constants, drop the `u`.
@@ -335,14 +318,14 @@ def simulate_regression(n=128, p=2, n_new=4, seed=145777):
 params, data = simulate_regression()
 ```
 
-The simulated parameter values are as follows.
+The parameter values used for the simulation are as follows.
 
 ```{python python-code}
 #| code-fold: false
 print(f"alpha:{params['alpha']:6.2f};   beta[0]:{params['beta'][0]:6.2f};   beta[1]:{params['beta'][1]:6.2f};   sigma:{params['sigma']:6.2f}")
 ```
 
-In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $y \sim \textrm{normal}(\alpha + x \cdot beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
+In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $y \sim \textrm{normal}(\alpha + x \cdot \beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
  
 ```{python python-code}
 #| code-fold: true
@@ -443,7 +426,7 @@ Given the model `m`, sampling with Stan's default parameters is a one liner.  We
 
 ```{python python-code}
 #| code-fold: false
-fit = m.sample(data=data, show_progress=False)
+fit = m.sample(data=data, show_progress=False, seed=145777)
 ```
 
 The variable `data` was defined above in the simulation.  The call to `sample()` uses CmdStanPy's default configuration parameters.  By default, Stan uses the multinomial, biased-progressive no-U-turn sampler [@betancourt2017conceptual], which invokes three stages of warmup (finding the bulk of the probability mass, estimating the inverse mass matrix, and estimating the step size). By default, Stan runs 1000 warmup and 1000 sampling iterations in 4 independent chains---this is often more than are necessary for model development and many applications.
@@ -457,7 +440,7 @@ Now that we have the fit, we can print a summary of the posterior from CmdStan, 
 summary_csp = fit.summary(sig_figs=3)
 print(summary_csp)
 ```
-The `summary_csp` variable provides programmatic access to the data this printed by default along with much more debugging and configuration information.  The variable `lp__` reported in the first row is the unnormalized log posterior density, the variables `alpha`, `beta`, and `sigma` report model parameters, and `y_new` reports the models posterior predictions. The remaining columns are defined per variable and include the posterior mean, Monte Carlo standard error, posterior standard deviation, mean absolute deviation (like standard deviation for medians), three quantiles (5\%, 50\%, and 95\%), as well as some convergence diagnostics.  The rank-normalized $\widehat{R}$ statistic is reported in the last column, and the effective sample size in the bulk and tail of the density, as well as bulk effective sample size per second (where we see this all ran quickly); definitions of all of these are provided by @vehtari2021rank.
+The `summary_csp` object is a pandas `DataFrame` containing the same table printed above. Additional run metadata and diagnostics beyond the table (configuration, console outputs, tuning parameters, etc.) live on `fit`, not in `summary_csp`. The variable `lp__` reported in the first row is the total log probability density (log posterior up to an additive constant). The variables `alpha`, `beta`, and `sigma` are model parameters, and `y_new` reports the model’s posterior predictive draws from the generated quantities block. The remaining columns include the posterior mean, Monte Carlo standard error, posterior standard deviation, median absolute deviation (MAD), three quantiles (5\%, 50\%, and 95\%), and convergence diagnostics including bulk and tail effective sample size and rank-normalized split $\widehat{R}$; definitions are provided by @vehtari2021rank.
 
 The summary shows that the model fits very well.  While it doesn't report timing, the effective sample size per second statistic lets you infer that this all ran in less than 0.1s.  The $\widehat{R}$ statistics are all below 1.005 and the effective sample sizes are all above 2000 with 4000 total sampling draws across four chains.
 
