@@ -219,7 +219,9 @@ To ground the discussion, let's consider the concrete example of coding a linear
 
 ## A multivariate linear regression model
 
-We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariates $x_n \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of a slope $\alpha \in \mathbb{R}$, regression coefficients $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are approximately on unit scale so that we can consider the following prior as weakly informative:
+We will assume a very simple multivariate regression formulation with an intercept, $P \in \mathbb{N}$ covariates, and $N \in \mathbb{N}$ observations.  Our data is made up of observations $y_n \in \mathbb{R}$ paired with covariate
+vectors $x_n \in \mathbb{R}^{P}$, assembled into a vector $y \in \mathbb{R}^N$ and a design matrix
+$x \in \mathbb{R}^{N \times P}$.  We will assume the usual parameters consisting of an intercept $\alpha \in \mathbb{R}$, regression coefficients (aka slopes) $\beta \in \mathbb{R}^P$, and an error scale $\sigma \in (0, \infty)$.  We will assume the data and covariates are approximately on unit scale so that we can consider the following prior as weakly informative:
 $$
 \alpha \sim \textrm{normal}(0, 5)
 \qquad
@@ -256,7 +258,7 @@ p^\textrm{unc}(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
 $$
 On the log scale, where we operate to prevent underflow and maintain precision, we have
 $$
-\log p(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
+\log p^\textrm{unc}(\alpha, \beta, \sigma^\textrm{unc} \mid x, y)
 = \log p(\alpha, \beta, \exp(\sigma^\textrm{unc}) \mid x, y) + \sigma^\textrm{unc}.
 $$
 
@@ -265,26 +267,7 @@ $$
 
 Here's an example Stan program defining a linear regression, which we have placed into the file `linear-regression.stan`. 
 ```stan
-data {
-  int<lower=0> N, N_new, P;
-  matrix[N, P] x;
-  vector[N] y;
-  matrix[N_new, P] x_new;
-}
-parameters {
-  real alpha;
-  vector[P] beta;
-  real<lower=0> sigma;
-}
-model {
-  alpha ~ normal(0, 5);
-  beta ~ normal(0, 2.5);
-  sigma ~ exponential(0.5);
-  y ~ normal(alpha + x * beta, sigma);
-}
-generated quantities {
-  array[N_new] real y_new = normal_rng(alpha + x_new * beta, sigma);
-}
+{{< include linear-regression.stan verbatim=true >}}
 ```
 
 Stan is very flexible.   For example, if `y` were binary data and we wanted to fit a logistic regression, `y` would be declared as `array[N] int<lower=0, upper=1>` and `normal()` would be replaced with `bernoulli_logit()` (and similarly for the generated quantities).
@@ -295,7 +278,7 @@ To ease the transition to JAX, note that the distribution statements in the mode
   target += normal_lupdf(alpha | 0, 5);
   target += normal_lupdf(beta | 0, 2.5);
   target += lognormal_lupdf(sigma | 0, 1);
-  target += normal_lupdf(alpha + x * beta, sigma);
+  target += normal_lupdf(y | alpha + x * beta, sigma);
 ```
 
 Here, the `_lupdf` indicates a log (`l`), unnormalized (`u`), probability density function (`pdf`).  For probability mass functions, replace `pdf` with `pmf`; to preserve normalizing constants, drop the `u`.
@@ -335,14 +318,14 @@ def simulate_regression(n=128, p=2, n_new=4, seed=145777):
 params, data = simulate_regression()
 ```
 
-The simulated parameter values are as follows.
+The parameter values used for the simulation are as follows.
 
 ```{python python-code}
 #| code-fold: false
 print(f"alpha:{params['alpha']:6.2f};   beta[0]:{params['beta'][0]:6.2f};   beta[1]:{params['beta'][1]:6.2f};   sigma:{params['sigma']:6.2f}")
 ```
 
-In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $y \sim \textrm{normal}(\alpha + x \cdot beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
+In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $y \sim \textrm{normal}(\alpha + x \cdot \beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
  
 ```{python python-code}
 #| code-fold: true
@@ -443,7 +426,7 @@ Given the model `m`, sampling with Stan's default parameters is a one liner.  We
 
 ```{python python-code}
 #| code-fold: false
-fit = m.sample(data=data, show_progress=False)
+fit = m.sample(data=data, show_progress=False, seed=145777)
 ```
 
 The variable `data` was defined above in the simulation.  The call to `sample()` uses CmdStanPy's default configuration parameters.  By default, Stan uses the multinomial, biased-progressive no-U-turn sampler [@betancourt2017conceptual], which invokes three stages of warmup (finding the bulk of the probability mass, estimating the inverse mass matrix, and estimating the step size). By default, Stan runs 1000 warmup and 1000 sampling iterations in 4 independent chains---this is often more than are necessary for model development and many applications.
@@ -457,7 +440,7 @@ Now that we have the fit, we can print a summary of the posterior from CmdStan, 
 summary_csp = fit.summary(sig_figs=3)
 print(summary_csp)
 ```
-The `summary_csp` variable provides programmatic access to the data this printed by default along with much more debugging and configuration information.  The variable `lp__` reported in the first row is the unnormalized log posterior density, the variables `alpha`, `beta`, and `sigma` report model parameters, and `y_new` reports the models posterior predictions. The remaining columns are defined per variable and include the posterior mean, Monte Carlo standard error, posterior standard deviation, mean absolute deviation (like standard deviation for medians), three quantiles (5\%, 50\%, and 95\%), as well as some convergence diagnostics.  The rank-normalized $\widehat{R}$ statistic is reported in the last column, and the effective sample size in the bulk and tail of the density, as well as bulk effective sample size per second (where we see this all ran quickly); definitions of all of these are provided by @vehtari2021rank.
+The `summary_csp` object is a pandas `DataFrame` containing the same table printed above. Additional run metadata and diagnostics beyond the table (configuration, console outputs, tuning parameters, etc.) live on `fit`, not in `summary_csp`. The variable `lp__` reported in the first row is the total log probability density (log posterior up to an additive constant). The variables `alpha`, `beta`, and `sigma` are model parameters, and `y_new` reports the model’s posterior predictive draws from the generated quantities block. The remaining columns include the posterior mean, Monte Carlo standard error, posterior standard deviation, median absolute deviation (MAD), three quantiles (5\%, 50\%, and 95\%), and convergence diagnostics including bulk and tail effective sample size and rank-normalized split $\widehat{R}$; definitions are provided by @vehtari2021rank.
 
 The summary shows that the model fits very well.  While it doesn't report timing, the effective sample size per second statistic lets you infer that this all ran in less than 0.1s.  The $\widehat{R}$ statistics are all below 1.005 and the effective sample sizes are all above 2000 with 4000 total sampling draws across four chains.
 
@@ -495,15 +478,15 @@ A Stan program translates almost line-for-line to a C++ class that implements al
 
 ## Stan's block structure
 
-* *Functions block*: Each function in the functions block is translated to a C++ function that is templated flexibly enough to allow automatic differentiation.   The main limitation to Stan's functions is that they cannot cross blocks and they cannot introduce block-level variables such as data or parameters; a secondary limitation is that arguments must be real or integer based.  Thus it is not possible to define functions like the built-in ODE solvers that take functions as arguments.
+* *Functions block*: This block allows the user to define functions for use throughout the rest of the program (such as in `transformed data`, `model`, and `generated quantities`). Each function is translated to a C++ function templated to support automatic differentiation.  User-defined functions are not closures: they cannot access variables declared in other blocks except via their arguments.  Arguments and return values may be scalars, vectors, matrices, and arrays of these types.  Stan does not support user-defined higher-order functions in the sense that user-defined functions cannot take other functions as arguments (the ODE solvers are special built-ins for this reason).
 
-* *Data and transformed data blocks*:  Each data declaration in the data block is translated to an instance variable of the generated class.  The data block can only contain declarations, and thus behaves like the signature for the data ingestion function.  The transformed data block is executed after the data is read in as the model object is being constructed.  After the model object is constructed with the data, it remains immutable to allow safe multi-threaded application.
+* *Data and transformed data blocks*:  These blocks specify the types of the (known) data and allow the user to perform data-preprocessing. Each data declaration in the data block is translated to an instance variable of the generated class.  The data block can only contain declarations, and thus behaves like the signature for the data ingestion function.  The transformed data block is executed after the data is read in as the model object is being constructed.  After the model object is constructed with the data, it remains immutable to allow safe multi-threaded application.
 
-* *Parameter and transformed parameter blocks*:  The log density function is defined for unconstrained inputs gathered into a vector.  The first part of the function unpacks the entries of that vector, applies the constraining transform to define constrained variables locally, then adds the log Jacobian determinant to the Jacobian accumulator to adjust for the change-of-variables making up the constraint.  Transformed  parameters also define local variables.  Everything executes serially as coded in the Stan program.
+* *Parameter and transformed parameter blocks*:  These blocks specify the types of the (unknown) parameters and allow the user to perform transmations of the parameters that they would also like to obtain posterior draws for. The log density function is defined for unconstrained inputs gathered into a vector.  The first part of the function unpacks the entries of that vector, applies the constraining transform to define constrained variables locally, then adds the log Jacobian determinant to the Jacobian accumulator to adjust for the change-of-variables making up the constraint.  Transformed  parameters also define local variables.  Everything executes serially as coded in the Stan program.
 
 * *Model block*: The rest of the body of the log density function is the line-by-line translation of Stan's model block.  Each distribution and target increment statement increments the log density accumulator, which is returned as the value of the function.  Everything is templated generally enough and coded in the underlying math library to allow automatic differentiation;  the automatic differentiation code dominates the project in terms of size and presents the most challenges to developer recruitment because of its modern C++ architecture [@carpenter2015ad].
 
-* *Generated quantities block*: This block is motivated by the goal of providing efficient forward-simulated predictive inferences.  The generated quantities block translates to a function that maps the parameters and a random number generator to the variables of interest.  These are gathered by this function along with the parameters and transformed parameters to form vector output.  The names of all the parameters define the columns of output and output is on the constrained scale where the user and Stan program model block operate.
+* *Generated quantities block*: This block is motivated by the goal of providing efficient forward-simulated predictive inferences by post-processing posterior draws.  The generated quantities block translates to a function that maps the parameters and a random number generator to the variables of interest.  These are gathered by this function along with the parameters and transformed parameters to form vector output.  The names of all the parameters define the columns of output and output is on the constrained scale where the user and Stan program model block operate.
 
 
 ## Stan's transpiled C++ model class
@@ -513,21 +496,21 @@ Stan programs are transpiled to C++, and then the C++ is compiled down to machin
 ```cpp
 namespace lr_model_namespace {
 
-class lr_model : model_base<lr_model> {
+class lr_model : public model_base<lr_model> {
   // data, transformed data
   int N, N_new, P;    MatrixXd x;
   VectorXd y;         MatrixXd x_new;
 
   // read data from c, compute transformed data
-  linear_regression_model(var_context& c, int seed,
+  lr_model(var_context& c, int seed,
                           ostream* msgs);
 
   // log density type T, propto drops constants, jacobian adjusts
   template <bool propto, bool jacobian, typename T>
-  Vector<T> log_prob(Vector<T>& params, ostream* msgs) const;
+  T log_prob(Vector<T>& params, ostream* msgs) const;
 
   // evaluate generated quantities and write csv
-  template <typnename RNG>
+  template <typename RNG>
   void write(RNG& rng, const VectorXd& params,
              ostream* csv_stream) const;
 
@@ -550,13 +533,15 @@ model_base& new_model(var_context& c, int seed, ostream* msgs);
 
 The data variables are specified in the `data` block in the Stan program.  Here, we have the sizes, the covariate matrices (`x` plus `x_new` for posterior prediction), and the outcomes (`y`).  The constructed C++ class is immutable and provides several methods, the most central of which is an unconstrained (in the sense of having support over all of $\mathbb{R}^D$) log density function that is templated in order to support automatic differentiation [@carpenter2015ad].  In math, the constraining transform maps $(\alpha, \beta, \sigma^\text{u})$ to $(\alpha, \beta, \exp(\sigma^\text{u}))$.  The transforms are independent and the first two are the identity, so the Jacobian determinant works out to $\exp(\sigma^\text{u})$.  Thus the additive change-of-variables adjustment on the log scale is just $\log \exp(\sigma^\text{u}) = \sigma^\text{u}$.
 
-The model block defines a density function $p$ over constrained parameters.  Although Stan can be used to sample from any density, it is typically used to code the unnormalized posterior log density of a Bayesian mode.  Densities are read elementwise, with scalar arguments being broadcast where necessary.  With this translation, the unnormalized log posterior over the constrained variables defined by the Stan program's model block is
+The model block defines a density function $p$ over constrained parameters.  Although Stan can be used to sample from any density, it is typically used to code the unnormalized posterior log density of a Bayesian model.  Densities are read elementwise, with scalar arguments being broadcast where necessary.  With this translation, the unnormalized log posterior over the constrained variables defined by the Stan program's model block is
 $$
+\begin{aligned}
 \log p(\alpha, \beta, \sigma \mid x, y)
- =  \log \textrm{normal}(\alpha \mid 0, 5)
- +  \sum_{p=1}^P \textrm{normal}(\beta_p \mid 0, 2.5) \\
- +  \log \textrm{gamma}(\sigma \mid 0.5) 
- +  \sum_{n=1}^N \textrm{normal}(y_n \mid \alpha + \beta \cdot x_n, \sigma).
+&= \log \textrm{normal}(\alpha \mid 0, 5)
+ + \sum_{p=1}^P \log \textrm{normal}(\beta_p \mid 0, 2.5) \\
+&\quad + \log \textrm{exponential}(\sigma \mid 0.5)
+ + \sum_{n=1}^N \log \textrm{normal}(y_n \mid \alpha + x_n \cdot \beta, \sigma).
+\end{aligned}
 $$
 The corresponding unconstrained log density over which inference is performed, adds the log Jacobian adjustment for the change of variables,
 $$
@@ -568,22 +553,22 @@ The transpiled C++ code implementing the log density function performs the follo
 
 ```cpp
 template <bool propto, bool jacobian, typename T>
-inline auto log_prob(Vector<T>& params) const {
+inline T log_prob(Vector<T>& params) const {
   Accumulator<T> accum;
   
   // transpiled parameters block
-  T log_jacobian;
-  Deserializer<T> in(params)
+  T log_jacobian(0.0);
+  Deserializer<T> in(params);
   auto alpha = in.template read<T>();
   auto beta = in.template read<Vector<T>>(P);
-  auto sigma = in__.template read_constrain_lb<T, jacobian>(0, log_jacobian);
+  auto sigma = in.template read_constrain_lb<T, jacobian>(0, log_jacobian);
   accum.add(log_jacobian);
 
   // transpiled model block
   accum.add(normal_lpdf<propto>(alpha, 0, 5));
   accum.add(normal_lpdf<propto>(beta, 0, 2.5));
   accum.add(exponential_lpdf<propto>(sigma, 0.5));
-  accum.add(normal_lpdf<propto>(y, add(alpha, multiply(beta, x))), sigma);
+  accum.add(normal_lpdf<propto>(y, add(alpha, multiply(x, beta)), sigma));
 
   return accum.sum();
 }
