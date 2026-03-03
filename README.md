@@ -1,14 +1,16 @@
 # JAX à la Stan
-Brian Ward, Mitzi Morris, Andrew Gelman, Bob Carpenter
-2026-02-03
+Brian Ward, Matthijs Vákár, Mitzi Morris, Andrew Gelman, Bob Carpenter
+2026-02-18
 
 ### Authors
 
 - [Brian Ward](https://brianward.dev) (Flatiron Institute)
+- [Matthijs Vákár](https://www.uu.nl/staff/MILVakar) (Utrecht
+  University)
 - [Mitzi Morris](https://mitzimorris.github.io) (Independent Contractor)
 - [Andrew Gelman](https://sites.stat.columbia.edu/gelman/) (Columbia
   Univesity)
-- [Bob Carpenter](https://bob-carpenter.github.io) (Flatiron Institute)
+- [Bob Carpenter](https://brianward.dev) (Flatiron Institute)
 
 [![build and
 publish](https://github.com/bob-carpenter/dj-paper/actions/workflows/build.yml/badge.svg)](https://github.com/bob-carpenter/dj-paper/actions/workflows/build.yml)
@@ -37,3 +39,8 @@ wider range of inference algorithms, and TensorFlow Probability provides
 a wider range of variable transforms. Together, these tools provide an
 environment to code models in the style of Stan targeting modern
 hardware without leaving an integrated Python programming environment.
+
+### Rendered draft
+
+- GitHub pages: [Jax à la
+  Stan](https://bob-carpenter.github.io/dj-paper/)
