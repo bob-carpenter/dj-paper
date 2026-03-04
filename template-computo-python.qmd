@@ -264,7 +264,7 @@ $$
 
 ## Coding a linear regression in Stan
 
-Here's an example Stan program defining a linear regression, which we have placed into the file `examples/regression.stan`. 
+Here's an example Stan program defining a linear regression, which we have placed into the file `linear-regression.stan`. 
 ```stan
 data {
   int<lower=0> N, N_new, P;
@@ -434,7 +434,7 @@ Once CmdStan is installed, transpiling the model to C++ and compiling the C++ is
 
 ```{python python-code}
 #| code-fold: false
-m = csp.CmdStanModel(stan_file="examples/regression.stan")
+m = csp.CmdStanModel(stan_file="linear-regression.stan")
 ```
 
 ## Sampling
