@@ -1,9 +1,5 @@
 # Motivation
 
-Bayesian data analysis necessarily involves Bayesian models.  It easy to concisely specify a Bayesian model mathematically using the notation for joint and conditional probability.  Probabilistic programming language (PPL) were developed with the goal of maintaining a clear correspondance between the mathematical specification of the model and its programmatic implementation.
-In this paper, we are going to focus on specifying models and performing posterior sampling as is done by a PPL, but without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
-
-
 ## Bayesian workflow
 
 
@@ -15,7 +11,9 @@ In this paper, we are going to focus on specifying models and performing posteri
 
 The authors further suggest that if the evaluation in step (3) is not sufficient, then one should go back to step (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on fitting multiple models and transparently reporting their exploration and comparison.
 
-A probabilistic programming language (PPL) primarily provides support for coding statistical models defined in step (1) in a way that they can be used for inference in step (2).  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods.  PPLs are typically coupled with posterior analysis and model comparison tools for task (3).  In addition, once the log unnormalized density is set up, PPLs can compute other operations such as mode finding, Laplace approximation, and variational inference.
+Probabilistic programming languages (PPLs) provide the necessary constructs for specifying joint and conditional probability distributions thus allowing models defined in step (1) to be coded so that they can be used for inference in step (2).  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods.  PPLs are typically coupled with posterior analysis and model comparison tools for task (3).  In addition, once the log unnormalized density is set up, PPLs can compute other operations such as mode finding, Laplace approximation, and variational inference.
+
+In this paper, we are going to focus on specifying models and performing posterior sampling as is done by a PPL, but without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
 
 For step (2), we recommend the Python package Blackjax [@cabezas2024blackjax]. Blackjax includes implementations of Stan's primary inference methods, the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], and Pathfinder variational inference [@zhang2022pathfinder].  Blackjax is being actively maintained and extended, and already includes several other useful algorithms, including microcanonical (aka isokinetic) sampling [@robnik2025metropolis], sequential Monte Carlo (SMC) [@doucet2001introduction], elliptical slice sampling [@murray2010elliptical], generalized HMC (GHMC) [@horowitz1991generalized], and even random-walk Metropolis (RWM) [@hastings1970monte].
 
@@ -266,7 +264,7 @@ $$
 
 ## Coding a linear regression in Stan
 
-Here's an example Stan program defining a linear regression, which we have placed into the file `linear-regression.stan`. 
+Here's an example Stan program defining a linear regression, which we have placed into the file `examples/regression.stan`. 
 ```stan
 data {
   int<lower=0> N, N_new, P;
@@ -315,9 +313,9 @@ import numpy as np
 
 def simulate_regression(n=128, p=2, n_new=4, seed=145777):
     def simulate_covariates(n):
-      x = rng.normal(size=(n, p))
-      x[:, 1] = x[:, 1]**2
-      return x
+        x = rng.normal(size=(n, p))
+        x[:, 1] = x[:, 1]**2
+        return x
 
     rng = np.random.default_rng(seed)
     alpha = rng.normal(0.0, 5.0)
@@ -436,7 +434,7 @@ Once CmdStan is installed, transpiling the model to C++ and compiling the C++ is
 
 ```{python python-code}
 #| code-fold: false
-m = csp.CmdStanModel(stan_file="linear-regression.stan")
+m = csp.CmdStanModel(stan_file="examples/regression.stan")
 ```
 
 ## Sampling
