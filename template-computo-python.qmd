@@ -622,8 +622,9 @@ def log_posterior(params):
     lp = 0.0
     lp += jnp.sum(stats.norm.logpdf(params["alpha"], loc=0.0, scale=5.0))
     lp += jnp.sum(stats.norm.logpdf(params["beta"], loc=0.0, scale=2.5))
-    lp += jnp.sum(stats.expon.logpdf(params["sigma"], scale=1.25))
-    mu = params['alpha'] + x @ params["beta"]
+    # Stan: exponential(0.5) uses rate=0.5  =>  scale = 1 / 0.5
+    lp += jnp.sum(stats.expon.logpdf(params["sigma"], scale=(1.0 / 0.5)))
+    mu = params["alpha"] + x @ params["beta"]
     lp += jnp.sum(stats.norm.logpdf(y, loc=mu, scale=params["sigma"]))
     return lp
 ```
@@ -653,7 +654,7 @@ def transform(params):
 
 The `transform()` function could have been implemented in one line.  Instead, we chose to follow a variable-by-variable pattern that will make it easier to automate later.
 
-The inverse transform is needed at runtime to map the transformed variables back to their untransformed state so that the log posterior may be applied.  For the inverse transform, any adjustment to ensure the implied distribution on the untransformed parameter space is uniform is returned along with the transformed parameters.  Typically, this is a Jacobian determinant to adjust for a bijective change-of-variables.  We use the same variable names for both transformed and untransformed parameters. The adjustment for the log change of variables here is just the log scale itself, as we derived above.  To keep the code structure regular and to ease the transition to automation, we use a log adjustment variable that is initialized to zero and updated after each inverse transform.
+The inverse transform is needed at runtime to map the transformed variables back to their untransformed state so that the log posterior may be applied.  For the inverse transform, any log-Jacobian adjustment needed so that the transformed-space density corresponds to the intended target on the constrained space is returned along with the transformed parameters.  Typically, this is a Jacobian determinant term from a bijective change-of-variables. We use the same variable names for both transformed and untransformed parameters. The adjustment for the log change of variables here is just the log scale itself, as we derived above.  To keep the code structure regular and to ease the transition to automation, we use a log adjustment variable that is initialized to zero and updated after each inverse transform.
 
 
 ```{python python-code}
@@ -670,7 +671,7 @@ def inv_transform(t_params):
 ```
 
 
-## The tranformed log density in JAX
+## The transformed log density in JAX
 
 The transformed log posterior function we will use for sampling can be defined to apply the inverse transform and add the adjustment.
 
@@ -684,7 +685,7 @@ def log_posterior_transformed(t_params):
 
 ## Random initialization in JAX
 
-Following Stan, we need a way to generate a transformed random initialization.  Here we use JAX's version of SciPy's `stats.random` library (imported above as `jrd`).
+Following Stan, we need a way to generate a transformed random initialization.  Here we use JAX's version of SciPy's `numpy.random` library (imported above as `jrd`).
 
 ```{python python-code}
 #| code-fold: false
@@ -705,7 +706,7 @@ The random number generators are supplied with shapes for variables that are not
 
 seed = 441_582
 key = jrd.key(seed)
-init_key, nuts_key = jrd.split(key, 2)
+init_key, nuts_key, gq_key = jrd.split(key, 3)
 t_params_init = random_init_transformed(init_key)
 print(f"{t_params_init=}")
 ```
@@ -819,7 +820,6 @@ def posterior_predictive_draws(key, draws):
     keys = jax.random.split(key, N)
     return jax.vmap(posterior_predictive, in_axes=(0, 0))(keys, draws)
 
-key, gq_key = jrd.split(key, 2)
 pred_draws = posterior_predictive_draws(gq_key, draws)
 ```
 
@@ -827,12 +827,13 @@ The `vmap` is the way that JAX maps a function in parallel.  The call above is e
 
 ```python
 results = []
-for i in range(S):
-    results.append(posterior_predictive(keys[i], params_draws[i]))
+for i in range(N):
+    params_i = jax.tree.map(lambda a: a[i], draws)
+    results.append(posterior_predictive(keys[i], params_i))
 return results    
 ```
 
-The specification `in_axes=(0, 0)` tells the application of `posterior_predictive` to bind to the first argument (i.e., to index position 0).
+The specification `in_axes=(0, 0)` tells `vmap` to iterate over axis 0 of both arguments: over `keys[i]` and over the leading axis of each array in the `draws` PyTree.
 
 We can summarize the results as before and verify they line up with the output from Stan's generated quantities block.
 
