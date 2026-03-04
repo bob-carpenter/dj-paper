@@ -227,6 +227,21 @@ It can be helpful to think of Stan’s *constraints* and TensorFlow Probability�
 From this viewpoint, the names are a bit misleading: $t$ need not encode a “constraint” (for example, affine maps $t(z)=\mu+Lz$ map $\mathbb{R}^D$ to all of $\mathbb{R}^D$ and are central to non-centered parameterizations), and $t$ need not be one-to-one (for example, the map $t(z)=z/\|z\|$ can give a useful parameterization of distributions on spheres).
 Even for a fixed space $C$, there can be multiple useful parameterizations with different numerical behavior (for example, $\exp$ versus $\mathrm{softplus}$ for $(0,\infty)$, logit versus probit links for $(0,1)$, and stick-breaking versus softmax-style constructions for a simplex).
 
+From an implementation point of view it is often convenient, most importantly for initializing parameters, to also provide a transform
+$f:C\to\mathbb{R}^N$ that goes in the opposite direction.
+When $t$ is not one-to-one this cannot be a true inverse; instead we often want it to behave as a \emph{one-sided inverse}
+(right inverse) in the sense that
+$$
+t\bigl(f(\theta)\bigr)=\theta,\qquad \theta\in C,
+$$
+i.e.\ $t\circ f=\mathrm{id}_C$.
+This is particularly useful for initialization: if we want to initialize the constrained parameter to $\theta_0\in C$,
+we can initialize the unconstrained parameter to $\phi_0=f(\theta_0)$, which yields the desired
+initialization on the constrained side,
+$t(\phi_0)=t(f(\theta_0))=\theta_0$.
+
+
+
 As long as $C\subseteq \mathbb{R}^D$ is an embedded submanifold of dimension $d$, it admits a canonical notion of $d$-dimensional volume, generalizing the usual notion of volume $d\theta$ on $\mathbb{R}^D$.
 We can think of this volume $d\theta$ as a (possibly improper) unnormalized uniform prior on $C$.
 We can consider probability distributions on $C$ arising from density functions w.r.t. this notion of volume.
