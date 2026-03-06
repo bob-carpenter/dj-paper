@@ -829,9 +829,10 @@ def linear_regression(x, y, x_new):
 
     def log_density(a, b, s):
         lp = 0
-        lp += normal(a, 0, 2)
-        lp += normal(b, 0, 1)
-        lp += exponential(s, 0.5)
+        lp += normal(a, 0, 5)
+        lp += normal(b, 0, 2.5)
+        # Match Stan's exponential(0.5), where 0.5 is the rate, so scale = 1 / 0.5 = 2
+        lp += exponential(s, 2)
         lp += normal(y, a + x @ b, s)
         return lp
 
@@ -879,7 +880,8 @@ The majority of the code in densejax consists of these transformation classes, u
 The `model` object remains general enough for use in any gradient based sampler implemented in JAX; the one-liner
 
 ``` python
-log_posterior_transformed = jax.jit(model.log_density)
+regression_model = linear_regression(x, y, x_new)
+log_posterior_transformed = jax.jit(regression_model.log_density)
 ```
 
 would be enough to use `blackjax` in the same manner as above.
@@ -925,22 +927,24 @@ Given these snippets, one can recreate the complete sampling workflow from the p
 seed = 441_582
 key = jrd.key(seed)
 
-model = linear_regression(x, y, x_new)
+regression_model = linear_regression(x, y, x_new)
 num_draws = 1_000
-draws = nuts_sample(key, model, num_draws)
 
-mean = functools.partial(jax.tree.map(functools.partial(jnp.mean, axis=0)))
-std = functools.partial(jax.tree.map(functools.partial(jnp.mean, axis=0)))
+sample_key, gq_key = jrd.split(key)
+draws = nuts_sample(sample_key, regression_model, num_draws)
+
+mean = functools.partial(jax.tree.map, functools.partial(jnp.mean, axis=0))
+std = functools.partial(jax.tree.map, functools.partial(jnp.std, axis=0))
 
 print(f"{mean(draws)=}")
 print(f"{std(draws)=}")
 
 # posterior predictive
-key, gq_keys = jrd.split(key, 1+num_draws)
-pred_draws = jax.vmap(model.forward, in_axes=(0, 0))(keys,draws)
+gq_keys = jrd.split(gq_key, num_draws)
+pred_draws = jax.vmap(regression_model.forward, in_axes=(0, 0))(gq_keys, draws)
 
 print(f"{mean(pred_draws)=}")
-print(f"{std(draws)=}")
+print(f"{std(pred_draws)=}")
 ```
 
 <!-- TODO(bmw): show multi chain -->
