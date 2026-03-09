@@ -112,11 +112,11 @@ In that case, why not just label everything unknown in a problem as "parameters"
 
 ## Generative modeling
 
-In Bayesian terminology, the joint distribution, $p(\theta,y) = p(\theta)p(y \mid \theta)$, is a \emph{generative model}, because a random $\theta$ can be generated from the prior and a random $y$ can be generated from the data distribution. For complicated models the generation process can be further divided; for example, in a hierarchical model with local parameters $\alpha$ and hyperparameters $\phi$, so that $\theta=(\phi, \alpha)$, the joint distribution can be factored as $p(\phi)p(\alpha \mid \phi)p(\theta \mid \phi,\alpha)$ which corresponds to the generated process in which $\phi$, $\alpha$, and $y$ are simulated in order.  As models become even more complicated, it can be helpful to express the factorization as a directed acyclic graph, and the joint distribution is called a \emph{graphical model}.
+In Bayesian terminology, the joint distribution, $p(\theta,y) = p(\theta)p(y \mid \theta)$, is a *generative model*, because a random $\theta$ can be generated from the prior and a random $y$ can be generated from the data distribution. For complicated models the generation process can be further divided; for example, in a hierarchical model with local parameters $\alpha$ and hyperparameters $\phi$, so that $\theta=(\phi, \alpha)$, the joint distribution can be factored as $p(\phi)p(\alpha \mid \phi)p(\theta \mid \phi,\alpha)$ which corresponds to the generated process in which $\phi$, $\alpha$, and $y$ are simulated in order.  As models become even more complicated, it can be helpful to express the factorization as a directed acyclic graph, and the joint distribution is called a *graphical model*.
 
 ## Unmodeled data
 
-So far we have discussed parameters $\theta$, observed data $y^{\rm obs}$, and latent or unobserve data $y^{\rm mis}$.  Bayesian models typically also include \emph{unmodeled data}, for example the sample size and predictors in a regression model.  If we write all the unmodeled data as $x$, then the posterior is $p(\theta, y^{\rm mis} \mid y^{\rm obs}, x)$.  This is not a full generative model because there is no distribution for $x$.
+So far we have discussed parameters $\theta$, observed data $y^{\rm obs}$, and latent or unobserve data $y^{\rm mis}$.  Bayesian models typically also include *unmodeled data*, for example the sample size and predictors in a regression model.  If we write all the unmodeled data as $x$, then the posterior is $p(\theta, y^{\rm mis} \mid y^{\rm obs}, x)$.  This is not a full generative model because there is no distribution for $x$.
 
 Different probabilistic programming languages handle unmodeled data in different ways.
 
