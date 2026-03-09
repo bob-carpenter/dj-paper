@@ -2,6 +2,7 @@
 
 ## Bayesian workflow
 
+
 @gelman2013bda begin their foundational textbook by factoring Bayesian data analysis into three steps.
 
 1. Design a joint probability distribution for observable data and unobservable parameters.
@@ -9,8 +10,9 @@
 3. Evaluate the model fit and what it tells us about our quantities of interest.
 
 The authors further suggest that if the evaluation in step (3) is not sufficient, then one should go back to step (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on fitting multiple models and transparently reporting their exploration and comparison.
-
-A probabilistic programming language (PPL) primarily provides support for coding statistical models defined in step (1) in a way that they can be used for inference in step (2).  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods.  PPLs are typically coupled with posterior analysis and model comparison tools for task (3).  In addition, once the log unnormalized density is set up, PPLs can compute other operations such as mode finding, Laplace approximation, and variational inference.
+ 
+A probabilistic programming language (PPL) primarily provides support for statisticians who wish to code a statistical model defined in step (1) so that it can be used for inference in step (2).
+The PPL syntax allows for a straightforward encoding of the joint probability distribution.  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods and are coupled with posterior analysis and model comparison tools for task (3).  In addition, once the log unnormalized density is set up, PPLs can compute other operations such as mode finding, Laplace approximation, and variational inference.
 
 In this paper, we are going to focus on specifying models and performing posterior sampling as is done by a PPL, but without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
 
@@ -173,7 +175,7 @@ which justifies the familiar $\mathcal{O}(1/\sqrt{M})$ Monte Carlo error rate an
 
 In practice, we often summarize Bayesian inference using posterior simulations, without deciding ahead of time what expectations or other posterior summaries will be needed.  So it is convenient that, with a large number of independent draws from the posterior distribution of all parameters and unobserved data of potential interest, we can use these to estimate arbitrary expectations, as well as obtain an estimate of their Monte Carlo uncertainty.
 
-In addition, posterior simulations can be used for multiple imputation of missing data [@rubin1996multiplerubin] and to understand the fitted model.  For example, in a logistic regression model, $Pr(y=1|x)=\mbox{logit}^{-1}(a + bx)$,  one can make a scatterplot of posterior simulations of $(a,b)$, along with a graph of data $(x,y)_n, n=1,\dots,N$ along with curves, $\mbox{logit}^{-1}(a + bx)$ corresponding to those draws of $(a,b)$.
+In addition, posterior simulations can be used for multiple imputation of missing data [@rubin1996multiple] and to understand the fitted model.  For example, in a logistic regression model, $Pr(y=1|x)=\mbox{logit}^{-1}(a + bx)$,  one can make a scatterplot of posterior simulations of $(a,b)$, along with a graph of data $(x,y)_n, n=1,\dots,N$ along with curves, $\mbox{logit}^{-1}(a + bx)$ corresponding to those draws of $(a,b)$.
 
 ## Computation with Markov chain Monte Carlo methods
 
@@ -312,9 +314,9 @@ import numpy as np
 
 def simulate_regression(n=128, p=2, n_new=4, seed=145777):
     def simulate_covariates(n):
-      x = rng.normal(size=(n, p))
-      x[:, 1] = x[:, 1]**2
-      return x
+        x = rng.normal(size=(n, p))
+        x[:, 1] = x[:, 1]**2
+        return x
 
     rng = np.random.default_rng(seed)
     alpha = rng.normal(0.0, 5.0)
