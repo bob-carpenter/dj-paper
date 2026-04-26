@@ -285,7 +285,7 @@ model {
   y ~ normal(alpha + x * beta, sigma);
 }
 generated quantities {
-  array[N_new] real y_new = normal_rng(alpha + x_new * beta, sigma);
+  vector[N_new] y_new = to_vector(normal_rng(alpha + x_new * beta, sigma));
 }
 ```
 
@@ -296,7 +296,7 @@ To ease the transition to JAX, note that the distribution statements in the mode
 ```stan
   target += normal_lupdf(alpha | 0, 5);
   target += normal_lupdf(beta | 0, 2.5);
-  target += lognormal_lupdf(sigma | 0, 1);
+  target += exponential(sigma | 0.5);
   target += normal_lupdf(alpha + x * beta, sigma);
 ```
 
@@ -321,7 +321,7 @@ def simulate_regression(n=128, p=2, n_new=4, seed=145777):
     rng = np.random.default_rng(seed)
     alpha = rng.normal(0.0, 5.0)
     beta = rng.normal(0.0, 2.5, size=p)
-    sigma = rng.exponential(1.0 / 0.5)
+    sigma = rng.exponential(1.0 / 0.5)  # numpy rng uses scale/mean parameterization
     x = simulate_covariates(n)
     mu = alpha + x @ beta
     y = rng.normal(mu, sigma)
@@ -557,7 +557,7 @@ $$
 \log p(\alpha, \beta, \sigma \mid x, y)
  =  \log \textrm{normal}(\alpha \mid 0, 5)
  +  \sum_{p=1}^P \textrm{normal}(\beta_p \mid 0, 2.5) \\
- +  \log \textrm{gamma}(\sigma \mid 0.5) 
+ +  \log \textrm{exponential}(\sigma \mid 0.5) 
  +  \sum_{n=1}^N \textrm{normal}(y_n \mid \alpha + \beta \cdot x_n, \sigma).
 $$
 The corresponding unconstrained log density over which inference is performed, adds the log Jacobian adjustment for the change of variables,

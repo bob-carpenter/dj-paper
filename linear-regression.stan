@@ -16,5 +16,5 @@ model {
   y ~ normal(alpha + x * beta, sigma);
 }
 generated quantities {
-  array[N_new] real y_new = normal_rng(alpha + x_new * beta, sigma);
+  vector[N_new] y_new = to_vector(normal_rng(alpha + x_new * beta, sigma));
 }
