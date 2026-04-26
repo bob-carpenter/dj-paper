@@ -12,10 +12,10 @@ dependencies:
   - ipykernel
   - cmake
   - make
-  - compilers
   - pip:
       - arviz
       - blackjax
       - cmdstanpy
       - bridgestan
       - "jax[cpu]"
+      - "optax>=0.2.8"
