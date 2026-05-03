@@ -627,6 +627,21 @@ y = jnp.array(data["y"])
 x_new = jnp.array(data["x_new"])
 ```
 
+## The model parameters
+
+Stan's log density function operates over the vector of parameters declared in the Stan program's `parameters` block.
+To take advantage of JAX's built-in serialization and optimization of PyTree, we construct a dictionary over
+all parameters which defines their shapes and dtypes.
+
+```{python python-code}
+#| code-fold: false
+params = {
+    "alpha": real(),
+    "beta": real(shape=x.shape[1]),
+    "sigma": positive(),
+}
+``
+
 ## The untransformed log posterior in JAX
 
 The log density function from the Stan model block can then be translated almost line by line into JAX; we only break out the definition of `mu` for readability---it could have been a nested expression.
