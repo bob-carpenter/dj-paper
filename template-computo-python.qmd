@@ -420,7 +420,9 @@ We will use the Python interface CmdStanPy [@stan2024csp], which makes an extern
 ```{python python-code}
 #| code-fold: false
 import cmdstanpy as csp
-csp.install_cmdstan()
+from cmdstan_env import configure_cmdstan, cmdstan_model
+
+configure_cmdstan()
 ```
 
 
@@ -435,7 +437,7 @@ Once CmdStan is installed, transpiling the model to C++ and compiling the C++ is
 
 ```{python python-code}
 #| code-fold: false
-m = csp.CmdStanModel(stan_file="linear-regression.stan")
+m = cmdstan_model("linear-regression.stan")
 ```
 
 ## Sampling
@@ -613,8 +615,9 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrd
 from jax.scipy import stats
-
 import blackjax
+
+from examples.util import positive, real
 ```
 
 Before we begin, we will also convert the Python and NumPy data types to JAX.
@@ -635,12 +638,13 @@ all parameters which defines their shapes and dtypes.
 
 ```{python python-code}
 #| code-fold: false
+
 params = {
     "alpha": real(),
     "beta": real(shape=x.shape[1]),
     "sigma": positive(),
 }
-``
+```
 
 ## The untransformed log posterior in JAX
 

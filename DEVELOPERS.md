@@ -59,14 +59,17 @@ python -m ipykernel install --user --name template-python --display-name "Python
 
 7. Install CmdStan using CmdStanPy.
 ```bash
-python -c "import cmdstanpy; cmdstanpy.install_cmdstan()"
+python -m cmdstan_env
 ```
+CmdStan should be installed inside the active conda environment, not in CmdStanPy's default `~/.cmdstan` directory.  This keeps the compiled Stan executables aligned with the dynamic libraries from the `template-python` environment.
+
 **CmdStan troubleshooting**
 
 If a Stan model was compiled before changing environments or toolchains, remove the generated executable so that it will rebuild on the next render.
 If CmdStan itself was built before a macOS or Xcode command line tools change, rebuild CmdStan.
 ```
-python -c "import cmdstanpy; cmdstanpy.install_cmdstan(overwrite=True)
+rm -f linear-regression
+python -c "import cmdstan_env; cmdstan_env.configure_cmdstan()"
 ```
 
 8. Render the document.
