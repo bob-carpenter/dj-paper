@@ -9,7 +9,7 @@ import cmdstanpy as csp
 def _cmdstan_install_dir():
     conda_prefix = os.environ.get("CONDA_PREFIX")
     if conda_prefix is None:
-        raise RuntimeError("Activate the template-python conda environment before rendering.")
+        return None
     return Path(conda_prefix) / "cmdstan"
 
 
@@ -42,12 +42,20 @@ def _fix_macos_tbb_linkage(executable):
 
 def configure_cmdstan():
     install_dir = _cmdstan_install_dir()
-    try:
-        cmdstan_path = _latest_cmdstan_path(install_dir)
-    except RuntimeError:
-        if not csp.install_cmdstan(dir=str(install_dir)):
-            raise RuntimeError(f"CmdStan installation failed in {install_dir}.")
-        cmdstan_path = _latest_cmdstan_path(install_dir)
+    if install_dir is None:
+        try:
+            cmdstan_path = Path(csp.cmdstan_path())
+        except ValueError:
+            if not csp.install_cmdstan():
+                raise RuntimeError("CmdStan installation failed.")
+            cmdstan_path = Path(csp.cmdstan_path())
+    else:
+        try:
+            cmdstan_path = _latest_cmdstan_path(install_dir)
+        except RuntimeError:
+            if not csp.install_cmdstan(dir=str(install_dir)):
+                raise RuntimeError(f"CmdStan installation failed in {install_dir}.")
+            cmdstan_path = _latest_cmdstan_path(install_dir)
 
     csp.set_cmdstan_path(str(cmdstan_path))
     for cmdstan_exe in ("diagnose", "print", "stansummary"):
