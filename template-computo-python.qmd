@@ -419,14 +419,16 @@ Stan is very flexible.   For example, if `y` were binary data and we wanted to f
 To ease the transition to JAX, note that the distribution statements in the model block are just syntactic sugar for incrementing the log target density [@carpenter2017stan].  The model block could have been coded as follows to generate the same C++ code.
 
 ```stan
-  target += normal_lupdf(alpha | 0, 5);
-          + normal_lupdf(beta | 0, 2.5);
-          + exponential_lupdf(sigma | 0.5);
+model {
+  target += normal_lupdf(alpha | 0, 5)
+          + normal_lupdf(beta | 0, 2.5)
+          + exponential_lupdf(sigma | 0.5)
           + normal_lupdf(y | alpha + x * beta, sigma);
+}
 ```
 
 Here, the `_lupdf` indicates a log (`l`), unnormalized (`u`), probability density function (`pdf`).  For probability mass functions, replace `pdf` with `pmf`; to preserve normalizing constants, drop the `u`.
-This statement accumulate, term by terms, the log density derived above. The intercept prior `normal_lupdf(alpha | 0, 5)` contributes $\log \textrm{normal}(\alpha \mid 0, 5)$; the
+This statement accumulates, term by term, the log density derived above. The intercept prior `normal_lupdf(alpha | 0, 5)` contributes $\log \textrm{normal}(\alpha \mid 0, 5)$; the
 coefficient and observation statements are vectorized, so the single calls `normal_lupdf(beta | 0, 2.5)` and `normal_lupdf(y | alpha + x * beta, sigma)` evaluate to the sums $\sum_{p=1}^P \log
 \textrm{normal}(\beta_p \mid 0, 2.5)$ and $\sum_{n=1}^N \log \textrm{normal}(y_n \mid \alpha + x_n \cdot \beta, \sigma)$, respectively. The products over $p$ and $n$ in the joint density
 thus become summations on the log scale, accumulated into target. The one term with no corresponding statement is the Jacobian adjustment $\sigma^\textrm{unc}$: Stan adds it automatically
