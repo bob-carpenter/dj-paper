@@ -10,11 +10,11 @@
 3. Evaluate the model fit and what it tells us about our quantities of interest.
 
 The authors further suggest that if the evaluation in step (3) is not sufficient, then one should go back to step (1) and try to come up with a better model.  More recently, @gelman2020workflow outlined a workflow for Bayesian analysis that puts more emphasis on fitting multiple models and transparently reporting their exploration and comparison.
- 
+
 A probabilistic programming language (PPL) primarily provides support for statisticians who wish to code a statistical model defined in step (1) so that it can be used for inference in step (2).
 The PPL syntax allows for a straightforward encoding of the joint probability distribution.  PPLs are typically coupled with samplers that allow step (2) to be performed with Monte Carlo methods and are coupled with posterior analysis and model comparison tools for task (3).  In addition, once the log unnormalized density is set up, PPLs can compute other operations such as mode finding, Laplace approximation, and variational inference.
 
-In this paper, we are going to focus on specifying models and performing posterior sampling as is done by a PPL, but without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.  
+In this paper, we are going to focus on specifying models and performing posterior sampling as is done by a PPL, but without actually using a PPL.  We will also provide guidance on integration with tools for inference, model evaluation/criticism, and model comparison.  Our goal is to develop a methodology for implementing efficient and scalable differentiable Bayesian models in Python in a way that is both easy to code and easy to read.
 
 For step (2), we recommend the Python package Blackjax [@cabezas2024blackjax]. Blackjax includes implementations of Stan's primary inference methods, the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], and Pathfinder variational inference [@zhang2022pathfinder].  Blackjax is being actively maintained and extended, and already includes several other useful algorithms, including microcanonical (aka isokinetic) sampling [@robnik2025metropolis], sequential Monte Carlo (SMC) [@doucet2001introduction], elliptical slice sampling [@murray2010elliptical], generalized HMC (GHMC) [@horowitz1991generalized], and even random-walk Metropolis (RWM) [@hastings1970monte].
 
@@ -25,7 +25,7 @@ For step (3), we recommend the Python package Arviz [@kumar2019arviz].  Arviz pr
 Stan [@carpenter2017stan] is a domain-specific language for expressing differentiable probability densities and posterior predictive quantities.  Stan is a probabilistic programming language in the sense that its variables can be interpreted as random variables.  Stan has been used in almost every area where statistics is applied, and as such, has accumulated an unmatched depth and breadth of training materials around different classes of probabilistic models.  There are textbooks, college classes, and reproducible case studies in all of these areas.  There's a vibrant community with a high volume [discussion forum](https://discourse.mc-stan.org).  The language is still being expanded and so is it's math library.
 
 The Stan project introduced several state of the art gradient-based inference algorithms including the no-U-turn sampler (NUTS) [@hoffman2014no], automatic differentiation variational inference (ADVI) [@kucukelbir2017automatic], Pathfinder variational inference [@zhang2022pathfinder], and black-box nested Laplace approximations [@margossian2023general] as well as posterior analysis tools such as split- and ranked-$\widehat{R}$ and corresponding bulk and tail effective sample size [@vehtari2021rank], leave-one-out cross-validation [@vehtari2017practical], refined simulation-based calibration checks [@cook2006validation], and prior predictive checks [@gabry2019visualization].  It is often used as the basis of methodological developments such as Bayesian workflow [@gelman2020workflow].
- 
+
 So why not just use Stan? The first reason is that Stan is largely CPU-bound.  All of its analysis tools and algorithms run on the CPU.  Although there are ways to call individual functions in a Stan program on the GPU (e.g., Cholesky decomposition) and ways to apply map-reduce across multiple cores, this is not enough.  Stan lacks a way to keep computation in-kernel on the GPU or organize inference to enable single-instruction multiple-data (SIMD) parallelism.  Although Stan has been faster than JAX on CPU, it is not competitive on modern hardware [@sountsov2024running; @maskell2024jaxgpu].
 
 The second obstacle to using Stan is the need to learn a second language. While Stan is not particularly complicated, it does present several additional difficulties beyond unfamiliar syntax and semantics.
@@ -34,7 +34,7 @@ The second obstacle to using Stan is the need to learn a second language. While 
 * Stan is strongly typed and statically compiled, which has the benefit of being type-safe at run time and leads to fast C++ computation.  The downside is that this kind of static typing is unfamiliar to most of Stan's intended users.  Stan's typing can be an annoyance and performance bottleneck even for experienced programmers due to its poor representational choice for containers that mixes C++ standard vectors [@josuttis2012cpp] for arrays and Eigen matrices [@guennebaud2010eigen] for linear algebra (this may sound harsh, but it was our fault as the original developers of Stan).
 * Stan requires a scripting language like R, Python, and Julia, to combine modeling with data preparation and posterior analysis, rather than providing a seamless single-language experience.  The interface between these languages and Stan is minimal---Stan is just being called as a black box to return samples.
 * There is relatively little tooling to aid with Stan development.  Currently, it's just autocomplete, syntax highlighting, and debug-by-print.  Python, in contrast, has several well supported integrated development environments with tooling for debugging, generating notebooks, integration with chatbots, integration with documentation, automatic refactoring tools, etc.
-* While there is a great deal of tutorial and onboarding material for Stan, it has to split its attention among several interfaces (two interfaces in R and Python and one in Julia).  Taken together, even Stan's extensive documentation is dwarfed by the pedagogical material around scientific, differentiable, and probabilistic computing in Python.  
+* While there is a great deal of tutorial and onboarding material for Stan, it has to split its attention among several interfaces (two interfaces in R and Python and one in Julia).  Taken together, even Stan's extensive documentation is dwarfed by the pedagogical material around scientific, differentiable, and probabilistic computing in Python.
 
 ## Why not just use PyMC or NumPyro?
 
@@ -63,18 +63,18 @@ Stan has an extensive library of special mathematical and statistical functions,
 * *Neural networks*: JAX is integrated tightly with a range of neural network constructions through the Flax package [@heek2020github], which is maintained by a team at Google DeepMind, but is not an official Google product like TensorFlow or JAX.  It supports everything from simple multilayer perceptrons and convolutional neural networks to autoencoders and multi-head attention.
 
 * *Simulation-based inference (SBI)*: There is as of yet, no mature and commonly used SBI package in JAX, nor is there any support in Stan.
-    
+
 * *Implicit Solvers*:  Applied statistics often requires equations to be solved and differentiated and Stan provides a fairly extensive library.
-    * *Ordinary differential equation (ODE) solvers*: There is no built-in support in JAX for ODE solvers, but the Diffrax package [@kidger2021on] is widely used and provides the same kind of adjoint and analytic methods as Stan that provide sensitivity analysis without automatically differentiating through the algorithm.  
+    * *Ordinary differential equation (ODE) solvers*: There is no built-in support in JAX for ODE solvers, but the Diffrax package [@kidger2021on] is widely used and provides the same kind of adjoint and analytic methods as Stan that provide sensitivity analysis without automatically differentiating through the algorithm.
 
     * *Root finders*:  There is no built-in support in JAX for root finders, but the JAXOpt package [@blondel2021jaxopt] is maintained by Google and provides a range of solvers including the Newton method used by Stan.
 
     * *1D Integration*: These functions are useful for defining cumulative distribution functions for novel densities. JAX does not ship an adaptive 1D quadrature routine in core, but external libraries such as [`quadax`](https://github.com/f0uriest/quadax) provide `jit`/`vmap`-able, differentiable adaptive quadrature (e.g., Gauss–Kronrod-style `quadgk`).
 
     * *Hidden Markov models*:  TFP (through [`tfp.distributions.HiddenMarkovModel`](https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/HiddenMarkovModel?hl=en)) supports likelihood evaluation (forward algorithm) and computation of latent-state marginals (a form of the forward–backward algorithm, e.g. `posterior_marginals`). Stan provides analogous built-ins (`hmm_marginal` for the marginal likelihood and `hmm_hidden_state_prob` for marginal latent state probabilities).
-    
+
     * *Kalman filters*:  Stan has direct support for Gaussian dynamic linear model likelihoods computed via the Kalman filter (e.g., `gaussian_dlm_obs_lpdf` and related functions). There is also experimental support in TFP (in [`tfp.experimental.parallel_filter.kalman_filter`](https://www.tensorflow.org/probability/api_docs/python/tfp/experimental/parallel_filter/kalman_filter?hl=en)).
-    
+
     * *Partial differential equation (PDE) solvers*:   Stan has no support for partial differential equations.  The JAX-CFD package [@kochkov2021cfd] from Google, mostly focused on fluid dynamics, includes a number of general-purpose PDE solvers, including finite volume/difference methods, pseudospectral methods, and machine-learning methods.  It supports Navier-Stokes, advection-diffusion, period and wall boundary conditions, and runs on GPU and TPU with gradients.
 
     * *Stochastic differential equation (SDE) solvers*:  Stan has no support for stochastic differential equations. The Diffrax package [@kidger2021on], in addition to providing stiff ODE solvers, also supports traditional SDE and SPDE solvers (Eueler-Maruyama, Milstein, Stratonovich/Itô) through spatial discretization.
@@ -98,7 +98,7 @@ By coding models directly in Python, we gain the same benefits of NumPyro and Py
 
 # Bayesian inference
 
-In this section, we will lay out the precise definition of the Bayesian inference problem we are trying to compute, show how it can be computed asymptotically exactly using Monte Carlo methods, and apply some simple calculus to transform parameterizations to be unconstrained (i.e., have support over all of $\mathbb{R}^D$).  
+In this section, we will lay out the precise definition of the Bayesian inference problem we are trying to compute, show how it can be computed asymptotically exactly using Monte Carlo methods, and apply some simple calculus to transform parameterizations to be unconstrained (i.e., have support over all of $\mathbb{R}^D$).
 
 ## Bayesian models
 
@@ -128,7 +128,7 @@ In any probabilistic programming language, you need to specify the unmodeled dat
 
 ## Bayesian inference with posterior expectations and simulations
 
-Bayesian inference involves visualizing and summarizing quantities of interest in the posterior and posterior predictive distributions.  For summaries, we are typically interested in posterior averages or posterior quantiles of parameters, predictions, or some functions of parameters and data.  Quantiles are typically used to give us medians and uncertainty intervals, while averages give us everything else. By averaging estimates of quantities of interest derived from parameters weighted by posterior density, we can account for estimation uncertainty into account in our inferences. 
+Bayesian inference involves visualizing and summarizing quantities of interest in the posterior and posterior predictive distributions.  For summaries, we are typically interested in posterior averages or posterior quantiles of parameters, predictions, or some functions of parameters and data.  Quantiles are typically used to give us medians and uncertainty intervals, while averages give us everything else. By averaging estimates of quantities of interest derived from parameters weighted by posterior density, we can account for estimation uncertainty into account in our inferences.
 
 Averages over the posterior density are most naturally expressed using expectation notation.  Given a random variable $\Theta \in \mathbb{R}^D$ representing knowledge about the parameters, the expectation of a function $f:\mathbb{R}^D \rightarrow \mathbb{R}$ is given by
 $$
@@ -145,7 +145,7 @@ This is just taking the function $f$ to be the identity.  The posterior covarian
 $$
 \textrm{var}[\Theta \mid y] = \mathbb{E}[(\Theta - \widehat{\theta}) \cdot (\theta - \widehat{\theta})^\top].
 $$
-Here the function is $f(\theta) = (\theta - \widehat{\theta}) \cdot (\theta - \widehat{\theta})^\top.$.  
+Here the function is $f(\theta) = (\theta - \widehat{\theta}) \cdot (\theta - \widehat{\theta})^\top.$.
 
 If we have an event $A \subseteq \mathbb{R}^D$, then its probability is given by the expectation of its indicator function,
 $$
@@ -253,7 +253,7 @@ Further, for intuitive use, any (log-)densities specified by the user on $\theta
 
 Therefore, our goal as PPL designers is to find a density $g^t$ with respect to the volume $d\phi$ on $\mathbb{R}^N$ that induces our canonical volume $d\theta$ on $C$ via $t$ in the sense that, for any integrable function $h:C\to \mathbb{R}$,
 $$
-\int_{\phi\in \mathbb{R}^N} g^t(\phi) h(t(\phi)) d\phi = \int_{\theta\in C} h(\theta) d\theta. 
+\int_{\phi\in \mathbb{R}^N} g^t(\phi) h(t(\phi)) d\phi = \int_{\theta\in C} h(\theta) d\theta.
 $$
 (In technical terms: $g^t\cdot d\phi$ pushes forward to $d\theta$ along $t$.)
 
@@ -277,7 +277,7 @@ The coarea formula of multivariate calculus then tells us that for any integrabl
 $$
 \int_{\phi\in \mathbb{R}^N} k(\phi) J_t(\phi) d\phi
 =
-\int_{\theta\in C} 
+\int_{\theta\in C}
 \left(\int_{\phi\in t^{-1}(\theta)} k(\phi) d\phi_\perp\right)
 d\theta.
 $$
@@ -285,13 +285,13 @@ In particular, if $h:C\to \mathbb{R}$ is integrable and $g^t_\perp$ is some func
 $$
 \int_{\phi\in \mathbb{R}^N} h(t(\phi)) g^t_\perp(\phi) J_t(\phi) d\phi
 =
-\int_{\theta\in C} 
-h(\theta) 
+\int_{\theta\in C}
+h(\theta)
 \left(\int_{\phi\in t^{-1}(\theta)} g^t_\perp(\phi)d\phi_\perp\right)
 d\theta
 =
-\int_{\theta\in C} 
-h(\theta) 
+\int_{\theta\in C}
+h(\theta)
 d\theta,
 $$
 as desired.
@@ -343,7 +343,7 @@ $$
 \qquad
 \sigma \sim \textrm{exponential}(0.5).
 $$
-We then add the conventional data generating process with independent normal errors, 
+We then add the conventional data generating process with independent normal errors,
 $$
 y_n \sim \textrm{normal}(\alpha + x_n \cdot \beta, \sigma).
 $$
@@ -390,7 +390,7 @@ where $\sigma = \exp(\sigma^\textrm{unc})$.
 
 ## Coding a linear regression in Stan
 
-Here's an example Stan program defining a linear regression, which we have placed into the file `linear-regression.stan`. 
+Here's an example Stan program defining a linear regression, which we have placed into the file `linear-regression.stan`.
 ```stan
 data {
   int<lower=0> N, N_new, P;
@@ -475,7 +475,7 @@ print(f"alpha:{params['alpha']:6.2f};   beta[0]:{params['beta'][0]:6.2f};   beta
 ```
 
 In @fig-sim-surface-plus-x, we provide a heatmap of the expected values of $y \sim \textrm{normal}(\alpha + x \cdot beta, \sigma)$, given values of $x$. The conditional expectation is $\mathbb{E}[y \mid x] = \alpha + x \cdot \beta$.  Here, $x$ is being read as a row vector like in the Stan program.
- 
+
 ```{python python-code}
 #| code-fold: true
 #| label: fig-sim-surface-plus-x
@@ -665,7 +665,7 @@ class lr_model : model_base<lr_model> {
   void write(RNG& rng, const VectorXd& params,
              ostream* csv_stream) const;
 
-  
+
   string model_name() const noexcept;
 
   void unconstrain(const VectorXd& constrained_params,
@@ -689,7 +689,7 @@ $$
 \log p(\alpha, \beta, \sigma \mid x, y)
  =  \log \textrm{normal}(\alpha \mid 0, 5)
  +  \sum_{p=1}^P \textrm{normal}(\beta_p \mid 0, 2.5) \\
- +  \log \textrm{exponential}(\sigma \mid 0.5) 
+ +  \log \textrm{exponential}(\sigma \mid 0.5)
  +  \sum_{n=1}^N \textrm{normal}(y_n \mid \alpha + \beta \cdot x_n, \sigma).
 $$
 The corresponding unconstrained log density over which inference is performed, adds the log Jacobian adjustment for the change of variables,
@@ -698,13 +698,13 @@ $$
 = \log p(\alpha, \beta, \exp(\sigma^\text{u}) \mid x, y) + \sigma^\text{u}.
 $$
 
-The transpiled C++ code implementing the log density function performs the following sequence of operations, which directly follows the Stan program.  The typing, logging, debugging traces, message I/O, and name mangling have all been simplified.  
+The transpiled C++ code implementing the log density function performs the following sequence of operations, which directly follows the Stan program.  The typing, logging, debugging traces, message I/O, and name mangling have all been simplified.
 
 ```cpp
 template <bool propto, bool jacobian, typename T>
 inline auto log_prob(Vector<T>& params) const {
   Accumulator<T> accum;
-  
+
   // transpiled parameters block
   T log_jacobian;
   Deserializer<T> in(params)
@@ -794,16 +794,16 @@ def log_posterior(params):
     return lp
 ```
 
-The `log_posterior` function binds the covariate matrix `x` and the outcome vector `y` from the top-level environment.  An alternative would have been to bind a JAX conversion of top-level container `data`, but we never need the encapsulated data, so just define the variables directly.  The log probability density functions are implemented in JAX's version of SciPy's `stats` library.  Unlike in Stan, where density functions automatically reduce by summation, the functions in `stats.norm` return JAX arrays, which are here summed by JAX's version of NumPy before being added to the target log density accumulator `lp`.  
+The `log_posterior` function binds the covariate matrix `x` and the outcome vector `y` from the top-level environment.  An alternative would have been to bind a JAX conversion of top-level container `data`, but we never need the encapsulated data, so just define the variables directly.  The log probability density functions are implemented in JAX's version of SciPy's `stats` library.  Unlike in Stan, where density functions automatically reduce by summation, the functions in `stats.norm` return JAX arrays, which are here summed by JAX's version of NumPy before being added to the target log density accumulator `lp`.
 
 The parameters themselves are read out of the argument dictionary.  While this may appear inefficient, JAX's just-in-time (JIT) compiler is smart enough to reduce the dictionary lookups to direct accesses at run time.
 
 
 ## Transforms and their inverses in JAX
 
-Before we can use this log posterior for sampling, we need a few support functions.  To mirror Stan, the sampler needs to work on the transformed scale.  Here, as in most programs, the transform maps constrained variables to unconstrained ones. In our regression example, the scale, which is constrained to $(0, \infty)$, is log-transformed so that the transformed scale ranges over the whole real number line, $(-\infty, \infty)$.  
+Before we can use this log posterior for sampling, we need a few support functions.  To mirror Stan, the sampler needs to work on the transformed scale.  Here, as in most programs, the transform maps constrained variables to unconstrained ones. In our regression example, the scale, which is constrained to $(0, \infty)$, is log-transformed so that the transformed scale ranges over the whole real number line, $(-\infty, \infty)$.
 
-We will start with the transform, which is only needed in practice for initializations from untransformed parameter values. In the linear regression example, the transform maps the regression coefficients to themselves and the scale to the log scale.  
+We will start with the transform, which is only needed in practice for initializations from untransformed parameter values. In the linear regression example, the transform maps the regression coefficients to themselves and the scale to the log scale.
 
 
 ```{python python-code}
@@ -893,7 +893,7 @@ The round trip arithmetic is not exact for `sigma`, because JAX works with 32-bi
 
 ## Sampling in Blackjax
 
-Before sampling, we will define a top-level Markov chain sampler and then we will instantiate it with the NUTS transition kernel configured to run in a way that matches Stan's defaults.  
+Before sampling, we will define a top-level Markov chain sampler and then we will instantiate it with the NUTS transition kernel configured to run in a way that matches Stan's defaults.
 
 ```{python python-code}
 #| code-fold: false
@@ -995,7 +995,7 @@ The `vmap` is the way that JAX maps a function in parallel.  The call above is e
 results = []
 for i in range(S):
     results.append(posterior_predictive(keys[i], params_draws[i]))
-return results    
+return results
 ```
 
 The specification `in_axes=(0, 0)` tells the application of `posterior_predictive` to bind to the first argument (i.e., to index position 0).
@@ -1035,12 +1035,12 @@ from densejax import (
 
 def linear_regression(x, y, x_new):
     N, P = x.shape
-    
+
     parameters = {
       'a': real(),
       'b': real(size=P),
       's': positive()
-    }                   
+    }
 
     def log_density(a, b, s):
         lp = 0
@@ -1053,7 +1053,7 @@ def linear_regression(x, y, x_new):
     def generate(rng, a, b, s):
         y_new = normal_rng(rng, a + x_new @ b, s)
         return { 'y_new': y_new }
-        
+
     return model(parameters, log_density, generate)
 ```
 
@@ -1071,8 +1071,8 @@ compiled.
 
 In order to automate the transformation functionality that were coded manually above, we introduce
 the idea of a "parameter specification"  (the `parameters` dictionary in the code) which provides
-all the information about how the parameters should be transformed. 
-The leaves of this parameter specification are simple classes like `positive`, 
+all the information about how the parameters should be transformed.
+The leaves of this parameter specification are simple classes like `positive`,
 which is reproduced here in full:
 
 ```python
@@ -1092,10 +1092,10 @@ class positive(ParameterConstraint):
 ```
 
 The densejax package provides a menu of existing transforms, but the above class is designed to be simple
-enough to be easily extensible. 
+enough to be easily extensible.
 
 The `real` class is simply a transform that has the identity for both sides of the transformation;
-we rely on JAX's jit compiler to remove any overhead from this implementation style. 
+we rely on JAX's jit compiler to remove any overhead from this implementation style.
 
 Turning this parameter spec into functions that perform the inverse transforms,
 transforms, and (possibly random) initialization is trivial. All of these reduce
@@ -1113,9 +1113,9 @@ the one-liner
 ```python
 log_posterior_transformed = jax.jit(model.log_density)
 ```
-would be enough to use `blackjax` in the same manner as above. 
+would be enough to use `blackjax` in the same manner as above.
 
-However, bundling more of the desired functionality into one object allows for more turn-key helpers. 
+However, bundling more of the desired functionality into one object allows for more turn-key helpers.
 Consider the following new definition of `nuts_sample`:
 
 ```python
