@@ -175,7 +175,7 @@ which implies the familiar $\mathcal{O}(1/\sqrt{M})$ Monte Carlo error rate. Fin
 
 In practice, we often summarize Bayesian inference using posterior simulations, without deciding ahead of time what expectations or other posterior summaries will be needed.  So it is convenient that, with a large number of independent draws from the posterior distribution of all parameters and unobserved data of potential interest, we can use these to estimate arbitrary expectations, as well as obtain an estimate of their Monte Carlo uncertainty.
 
-In addition, posterior simulations can be used for multiple imputation of missing data [@rubin1996multiple] and to understand the fitted model.  For example, in a logistic regression model, $Pr(y=1|x)=\mbox{logit}^{-1}(a + bx)$,  one can make a scatterplot of posterior simulations of $(a,b)$, along with a graph of data $(x,y)_n, n=1,\dots,N$ along with curves, $\mbox{logit}^{-1}(a + bx)$ corresponding to those draws of $(a,b)$.
+In addition, posterior simulations can be used for multiple imputation of missing data [@rubin1996multiple] and to understand the fitted model.  For example, in a logistic regression model, $Pr(y=1|x)=\textrm{logit}^{-1}(a + bx)$,  one can make a scatterplot of posterior simulations of $(a,b)$, along with a graph of data $(x,y)_n, n=1,\dots,N$ along with curves, $\textrm{logit}^{-1}(a + bx)$ corresponding to those draws of $(a,b)$.
 
 ## Computation with Markov chain Monte Carlo methods
 
