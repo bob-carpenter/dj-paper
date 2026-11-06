@@ -752,7 +752,7 @@ import jax.random as jrd
 from jax.scipy import stats
 import blackjax
 
-from examples.util import positive, real
+from densityjax import positive, real
 ```
 
 Before we begin, we will also convert the Python and NumPy data types to JAX.

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "densityjax"
 version = "0.0.0"
 requires-python = ">=3.11"
-dependencies = ["jax", "numpy"]
+dependencies = ["jax[cpu]", "numpy"]
 
 [project.optional-dependencies]
 test = ["pytest", "black"]

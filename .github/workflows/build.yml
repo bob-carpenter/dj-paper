@@ -6,10 +6,12 @@ on:
   push:
     branches: ["main","master"]
   repository_dispatch:
-    types: [custom-event] 
+    types: [custom-event]
   workflow_dispatch:
   pull_request:
     branches: ["main","master"]
+    paths:
+     - "*.qmd"
 
 
 jobs:

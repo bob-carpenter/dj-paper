@@ -1,8 +1,7 @@
 project:
   type: default
   render:
-    - template-computo-python.qmd
-    - README.qmd
+    - paper.qmd
 
 title: "JAX à la Stan"
 subtitle: Bayesian modeling directly in Python

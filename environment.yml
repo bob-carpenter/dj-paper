@@ -12,10 +12,8 @@ dependencies:
   - ipykernel
   - pip:
       - arviz
-      - pytest
-      - black
       - blackjax
       - cmdstanpy
       - bridgestan
-      - "jax[cpu]"
       - "optax>=0.2.8"
+      - "."

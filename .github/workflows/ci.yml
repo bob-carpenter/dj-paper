@@ -1,0 +1,49 @@
+name: Python package tests
+
+on:
+  push:
+    branches:
+      - 'main'
+    tags:
+      - '**'
+  pull_request:
+    paths:
+     - "src/"
+     - "pyproject.toml"
+     - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+# only run one copy per PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Tests (${{matrix.os}} / Python ${{matrix.python-version}})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.14"]
+    steps:
+      - name: Check out github
+        uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package
+        run: |
+          python -m pip install .[test]
+
+      - name: Run examples
+        run: |
+          python -m pip install blackjax
+          python examples/main.py
+
+      - name: Run tests
+        run: |
+          pytest -v
