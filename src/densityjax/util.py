@@ -1,3 +1,4 @@
+import jax.numpy as jnp
 from jax.flatten_util import ravel_pytree
 
 
@@ -12,3 +13,8 @@ def ravelize_function(f, pytree):
     # This is usually true in stats models
     _, unravel = ravel_pytree(pytree)
     return lambda x: f(unravel(x))
+
+
+def broadcast_shapes_of(*args):
+    """Return the maximal shape of the inputs"""
+    return jnp.broadcast_shapes(*(getattr(arg, "shape", ()) for arg in args))

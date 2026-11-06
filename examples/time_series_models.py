@@ -1,15 +1,8 @@
 from jax import random, jit, lax
 import jax
 import jax.numpy as jnp
-from jax.scipy import stats
 
-from densityjax import (
-    bind,
-    make_log_density,
-    positive,
-    box,
-    simplex,
-)
+from densityjax import bind, make_log_density, positive, box, simplex, normal
 from densityjax.constraints import constrain, spec_to_pytree
 from densityjax.util import ravelize_function
 
@@ -71,11 +64,11 @@ def filter_variance(alpha_0, alpha_1, beta_1):
 
 
 def log_likelihood(alpha_0, alpha_1, beta_1):
-    target = jnp.sum(stats.norm.logpdf(alpha_0, loc=0.0, scale=1.0))
+    target = normal(alpha_0, 0.0, 1.0)
     # flat priors on alpha_1, beta_1
 
     s2, _ = filter_variance(alpha_0, alpha_1, beta_1)
-    target += jnp.sum(stats.norm.logpdf(returns, loc=0.0, scale=jnp.sqrt(s2)))
+    target += normal(returns, 0.0, jnp.sqrt(s2))
     return target
 
 
