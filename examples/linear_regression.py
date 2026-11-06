@@ -10,7 +10,6 @@ from densityjax import (
 from densityjax.constraints import constrain, spec_to_pytree
 from densityjax.util import ravelize_function
 
-
 # These are the primary exports of this module:
 __all__ = [
     "log_density",
@@ -37,24 +36,21 @@ parameter_spec = {
     "sigma": positive(),
 }
 
-# log density components
-
-
-def log_prior(alpha, beta, sigma):
-    lp_alpha = jnp.sum(stats.norm.logpdf(alpha, loc=0.0, scale=1.0))
-    lp_beta = jnp.sum(stats.norm.logpdf(beta, loc=0.0, scale=1.0))
-    # "scale" is rate of exponential distribution (bad SciPy)
-    lp_sigma = jnp.sum(stats.expon.logpdf(sigma, scale=1.0))
-    return lp_alpha + lp_beta + lp_sigma
-
 
 def log_likelihood(alpha, beta, sigma):
+    # prior
+    target = jnp.sum(stats.norm.logpdf(alpha, loc=0.0, scale=1.0))
+    target += jnp.sum(stats.norm.logpdf(beta, loc=0.0, scale=1.0))
+    # "scale" is rate of exponential distribution (bad SciPy)
+    target += jnp.sum(stats.expon.logpdf(sigma, scale=1.0))
+    # likelihood
     mu = alpha + x @ beta
-    return jnp.sum(stats.norm.logpdf(y, loc=mu, scale=sigma))
+    target += jnp.sum(stats.norm.logpdf(y, loc=mu, scale=sigma))
+    return target
 
 
 # a log density function
-log_density = make_log_density(log_prior, log_likelihood, parameter_spec=parameter_spec)
+log_density = make_log_density(log_likelihood, parameter_spec=parameter_spec)
 
 
 # We can also provide a flattened version, automatically,
