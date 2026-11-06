@@ -3,17 +3,16 @@ import jax
 import jax.numpy as jnp
 from jax.scipy import stats
 
-from util import (
+from densityjax import (
     bind,
-    ravelize_function,
     make_log_density,
-    constrain,
     positive,
-    real,
     box,
     simplex,
-    spec_to_pytree,
 )
+from densityjax.constraints import constrain, spec_to_pytree
+from densityjax.util import ravelize_function
+
 
 # These are the primary exports of this module:
 __all__ = [

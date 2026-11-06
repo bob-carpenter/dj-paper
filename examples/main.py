@@ -3,7 +3,7 @@ import blackjax
 import jax
 import jax.numpy as jnp
 
-from util import init_random
+from densityjax.modelling import init_random
 
 from linear_regression import (
     log_density,
@@ -87,11 +87,11 @@ if __name__ == "__main__":
     states = stan_sample(log_density_garch, init_draw_garch, N, sample_key)
     # postprocess draws - constrains and does generated quantities
     draws = jax.vmap(generated_quantities_garch, (0, None))(rngs, r_new, **states.position)
-    
+
     print("garch (1,1): ", jax.tree.map(functools.partial(jnp.mean, axis=0), draws))
 
     # ------------- "flat" version -------------
-    
+
     init_draw_vec_garch = jax.random.uniform(init_key, shape=(3,))
     states_vec_garch = stan_sample(log_density_vec_garch, init_draw_vec_garch, N, sample_key)
     draws_vec_garch = jax.vmap(generated_quantities_vec_garch, (0, None, 0))(

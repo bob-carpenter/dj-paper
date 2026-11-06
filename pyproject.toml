@@ -1,14 +1,19 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "dj-paper"
+name = "densityjax"
 version = "0.0.0"
 requires-python = ">=3.11"
 dependencies = ["jax", "numpy"]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest", "black"]
 
-[tool.pytest.ini_options]
-testpaths = ["examples/tests"]
-pythonpath = ["examples", "examples/tests"]
-addopts = ["--import-mode=importlib", "--strict-markers"]
-markers = ["slow: takes more than a few seconds; deselect with -m 'not slow'"]
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["densityjax"]
+
+[tool.setuptools.package-data]
+"densityjax" = ["py.typed"]

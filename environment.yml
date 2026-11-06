@@ -10,10 +10,10 @@ dependencies:
   - plotnine
   - jupyter
   - ipykernel
-  - cmake
-  - make
   - pip:
       - arviz
+      - pytest
+      - black
       - blackjax
       - cmdstanpy
       - bridgestan

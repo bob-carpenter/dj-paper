@@ -1,25 +1,17 @@
-"""util (non-family part): constrain, unconstrain and spec_to_pytree on specs with several parameters.
+"""helpers: constrain, unconstrain and spec_to_pytree on specs with several parameters."""
 
-SPEC: s is positive (3 entries), z is zero_sum(4); 'extra' is not in SPEC, so it is real.
-Hand values:
-  s:     exp(log 2, log 3, log 1) = (2, 3, 1), log-det = log 2 + log 3 + 0 = log 6
-  z:     zero_sum(4)(1, 1, 1) = (1, 1, 1, -3)/2, log-det = 0  (unit/constraints/test_values.py)
-  extra: unchanged, log-det = 0
-  total log-det = log 6
-
-CHAIN: a is positive, b = bind(a -> box(0, a)), c = bind(a, b -> box(b, a)), so c is bound to a
-parameter and to a bind. At x = 0, box(l, u) gives l + (u - l) sigmoid(0) = (l + u)/2, with
-log-det = sum(log(u - l)) - 3 * 2 softplus(0) = sum(log(u - l)) - log 64.
-Hand values:
-  a:     exp(log 1, log 2, log 4) = (1, 2, 4), log-det = 0 + log 2 + log 4 = log 8
-  b:     (0 + (1, 2, 4))/2 = (1/2, 1, 2), log-det = log(1 * 2 * 4) - log 64 = log 8 - log 64
-  c:     ((1/2, 1, 2) + (1, 2, 4))/2 = (3/4, 3/2, 3), log-det = log(1/2 * 1 * 2) - log 64 = -log 64
-  total log-det = log 8 + (log 8 - log 64) - log 64 = -log 64
-"""
 import jax.numpy as jnp
 import numpy as np
 
-from util import bind, box, constrain, positive, spec_to_pytree, unconstrain, zero_sum
+from densityjax.constraints import (
+    bind,
+    box,
+    constrain,
+    positive,
+    spec_to_pytree,
+    unconstrain,
+    zero_sum,
+)
 
 SPEC = {"s": positive(shape=(3,)), "z": zero_sum(4)}
 U = {
@@ -34,7 +26,11 @@ CHAIN = {
     "b": bind("a", lambda a: box(lower=0.0, upper=a, shape=(3,))),
     "a": positive(shape=(3,)),
 }
-CHAIN_U = {"c": jnp.zeros(3), "b": jnp.zeros(3), "a": jnp.log(jnp.array([1.0, 2.0, 4.0]))}
+CHAIN_U = {
+    "c": jnp.zeros(3),
+    "b": jnp.zeros(3),
+    "a": jnp.log(jnp.array([1.0, 2.0, 4.0])),
+}
 
 
 def test_constrain__maps_each_spec_parameter_by_its_constraint():

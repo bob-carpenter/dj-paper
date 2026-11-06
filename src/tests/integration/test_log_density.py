@@ -1,9 +1,10 @@
 """Workflow: spec + prior + likelihood -> make_log_density -> evaluate on unconstrained values."""
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from util import bind, box, make_log_density, positive
+from densityjax import bind, box, make_log_density, positive
 
 
 def test_log_density_with_exponential_prior__integrates_to_one():
@@ -26,7 +27,9 @@ def test_log_density_with_uniform_prior_bounded_by_bind__integrates_to_one():
     spec = {"s": positive(), "t": bind("s", lambda s: box(lower=0.0, upper=s))}
     log_density = make_log_density(lambda s, t: -s - jnp.log(s), lambda s, t: 0.0, spec)
     x = jnp.linspace(-40.0, 40.0, 801)
-    q = jnp.exp(jax.vmap(lambda xs: jax.vmap(lambda xt: log_density({"s": xs, "t": xt}))(x))(x))
+    q = jnp.exp(
+        jax.vmap(lambda xs: jax.vmap(lambda xt: log_density({"s": xs, "t": xt}))(x))(x)
+    )
     np.testing.assert_allclose(jnp.sum(q) * (x[1] - x[0]) ** 2, 1.0, rtol=1e-6)
 
 
@@ -40,5 +43,7 @@ def test_log_density_with_exponential_prior_bounded_below_by_bind__integrates_to
     spec = {"s": positive(), "t": bind("s", lambda s: box(lower=s))}
     log_density = make_log_density(lambda s, t: -s - (t - s), lambda s, t: 0.0, spec)
     x = jnp.linspace(-40.0, 40.0, 801)
-    q = jnp.exp(jax.vmap(lambda xs: jax.vmap(lambda xt: log_density({"s": xs, "t": xt}))(x))(x))
+    q = jnp.exp(
+        jax.vmap(lambda xs: jax.vmap(lambda xt: log_density({"s": xs, "t": xt}))(x))(x)
+    )
     np.testing.assert_allclose(jnp.sum(q) * (x[1] - x[0]) ** 2, 1.0, rtol=1e-6)

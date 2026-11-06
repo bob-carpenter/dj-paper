@@ -18,6 +18,7 @@ _environment
 __pycache__/
 *.py[cod]
 .venv/
+*.egg-info/
 
 # Quarto tmp files
 /.quarto/
