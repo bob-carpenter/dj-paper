@@ -390,7 +390,7 @@ where $\sigma = \exp(\sigma^\textrm{unc})$.
 
 ## Coding a linear regression in Stan
 
-Here's an example Stan program defining a linear regression, which we have placed into the file `linear-regression.stan`.
+Here's an example Stan program defining a linear regression, which we have placed into the file `examples/linear-regression.stan`.
 ```stan
 data {
   int<lower=0> N, N_new, P;
@@ -572,7 +572,7 @@ Once CmdStan is installed, transpiling the model to C++ and compiling the C++ is
 
 ```{python python-code}
 #| code-fold: false
-m = cmdstan_model("linear-regression.stan")
+m = cmdstan_model("examples/linear-regression.stan")
 ```
 
 ## Sampling
@@ -752,7 +752,7 @@ import jax.random as jrd
 from jax.scipy import stats
 import blackjax
 
-from examples.util import positive, real
+from densityjax import positive, real
 ```
 
 Before we begin, we will also convert the Python and NumPy data types to JAX.
@@ -1035,7 +1035,7 @@ The Stan linear regression can be translated almost line for line into Python us
 
 ```python
 from densejax import (
-    real, positive, normal, exponential, normal_rng, model
+    real, positive, normal, exponential, normal_rng, Model
 )
 
 def linear_regression(x, y, x_new):
@@ -1059,7 +1059,7 @@ def linear_regression(x, y, x_new):
         y_new = normal_rng(rng, a + x_new @ b, s)
         return { 'y_new': y_new }
 
-    return model(parameters, log_density, generate)
+    return Model(parameters, log_density, generate)
 ```
 
 After calling this function with data, the resulting `model` object is feature

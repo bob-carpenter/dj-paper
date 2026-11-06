@@ -1,15 +1,9 @@
-from jax import random, jit
+from jax import jit
 import jax.numpy as jnp
-from jax.scipy import stats
 
-from util import (
-    ravelize_function,
-    make_log_density,
-    constrain,
-    positive,
-    real,
-    spec_to_pytree,
-)
+from densityjax import make_log_density, positive, real, normal, exponential, normal_rng
+from densityjax.constraints import constrain, spec_to_pytree
+from densityjax.util import ravelize_function
 
 # These are the primary exports of this module:
 __all__ = [
@@ -37,24 +31,20 @@ parameter_spec = {
     "sigma": positive(),
 }
 
-# log density components
-
-
-def log_prior(alpha, beta, sigma):
-    lp_alpha = jnp.sum(stats.norm.logpdf(alpha, loc=0.0, scale=1.0))
-    lp_beta = jnp.sum(stats.norm.logpdf(beta, loc=0.0, scale=1.0))
-    # "scale" is rate of exponential distribution (bad SciPy)
-    lp_sigma = jnp.sum(stats.expon.logpdf(sigma, scale=1.0))
-    return lp_alpha + lp_beta + lp_sigma
-
 
 def log_likelihood(alpha, beta, sigma):
+    # prior
+    target = normal(alpha, 0.0, 1.0)
+    target += normal(beta, 0.0, 1.0)
+    target += exponential(sigma, 1.0)
+    # likelihood
     mu = alpha + x @ beta
-    return jnp.sum(stats.norm.logpdf(y, loc=mu, scale=sigma))
+    target += normal(y, mu, sigma)
+    return target
 
 
 # a log density function
-log_density = make_log_density(log_prior, log_likelihood, parameter_spec=parameter_spec)
+log_density = make_log_density(log_likelihood, parameter_spec=parameter_spec)
 
 
 # We can also provide a flattened version, automatically,
@@ -68,7 +58,7 @@ def generated_quantities(rng, x_new, **params):
     constrained, _ = constrain(parameter_spec, **params)
     alpha, beta, sigma = constrained["alpha"], constrained["beta"], constrained["sigma"]
     mu_new = alpha + x_new @ beta
-    y_new = mu_new + sigma * random.normal(rng, shape=x_new.shape)
+    y_new = normal_rng(rng, mu_new, sigma)
     return {"alpha": alpha, "beta": beta, "sigma": sigma, "y_new": y_new}
 
 

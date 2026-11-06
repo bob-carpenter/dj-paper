@@ -10,12 +10,10 @@ dependencies:
   - plotnine
   - jupyter
   - ipykernel
-  - cmake
-  - make
   - pip:
       - arviz
       - blackjax
       - cmdstanpy
       - bridgestan
-      - "jax[cpu]"
       - "optax>=0.2.8"
+      - "."

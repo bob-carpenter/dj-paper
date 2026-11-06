@@ -1,19 +1,10 @@
 from jax import random, jit, lax
 import jax
 import jax.numpy as jnp
-from jax.scipy import stats
 
-from util import (
-    bind,
-    ravelize_function,
-    make_log_density,
-    constrain,
-    positive,
-    real,
-    box,
-    simplex,
-    spec_to_pytree,
-)
+from densityjax import bind, make_log_density, positive, box, simplex, normal
+from densityjax.constraints import constrain, spec_to_pytree
+from densityjax.util import ravelize_function
 
 # These are the primary exports of this module:
 __all__ = [
@@ -33,12 +24,17 @@ data_key, rng_key = random.split(rng_key)
 true = {"alpha_0": 0.1, "alpha_1": 0.1, "beta_1": 0.85}
 T = 3000
 
+
 def simulate(key, alpha_0, alpha_1, beta_1, T):
     def step(s2, e):
         r = jnp.sqrt(s2) * e
         return alpha_0 + alpha_1 * r**2 + beta_1 * s2, (r, s2)
-    _, (r, s2) = lax.scan(step, alpha_0 / (1 - alpha_1 - beta_1), random.normal(key, (T,)))
+
+    _, (r, s2) = lax.scan(
+        step, alpha_0 / (1 - alpha_1 - beta_1), random.normal(key, (T,))
+    )
     return r, s2
+
 
 returns, true_s2 = simulate(data_key, **true, T=T)
 
@@ -57,35 +53,38 @@ parameter_spec = {
 # log density components
 
 
-def log_prior(alpha_0, alpha_1, beta_1):
-    lp_alpha_0 = jnp.sum(stats.norm.logpdf(alpha_0, loc=0.0, scale=1.0))
-    lp_alpha_1 = 0.0 # flat prior
-    lp_beta_1 = 0.0 # flat prior
-    return lp_alpha_0 + lp_alpha_1 + lp_beta_1
-
-
 def filter_variance(alpha_0, alpha_1, beta_1):
     """Returns (conditional variances for each observation, variance for the next step)."""
+
     def step(s2, r_prev):
         return alpha_0 + alpha_1 * r_prev**2 + beta_1 * s2, s2
+
     s2_next, s2 = jax.lax.scan(step, alpha_0 / (1 - alpha_1 - beta_1), returns)
     return s2, s2_next
 
 
 def log_likelihood(alpha_0, alpha_1, beta_1):
+    target = normal(alpha_0, 0.0, 1.0)
+    # flat priors on alpha_1, beta_1
+
     s2, _ = filter_variance(alpha_0, alpha_1, beta_1)
-    return jnp.sum(stats.norm.logpdf(returns, loc=0.0, scale=jnp.sqrt(s2)))
+    target += normal(returns, 0.0, jnp.sqrt(s2))
+    return target
 
 
 def _generated_quantities(r_new, alpha_0, alpha_1, beta_1):
     _, s2_curr = filter_variance(alpha_0, alpha_1, beta_1)
     sigma_new = jnp.sqrt(alpha_0 + alpha_1 * r_new**2 + beta_1 * s2_curr)
-    return {"alpha_0": alpha_0, "alpha_1": alpha_1, "beta_1": beta_1,
-            "sigma_new": sigma_new}
+    return {
+        "alpha_0": alpha_0,
+        "alpha_1": alpha_1,
+        "beta_1": beta_1,
+        "sigma_new": sigma_new,
+    }
 
 
 # a log density function
-log_density = make_log_density(log_prior, log_likelihood, parameter_spec=parameter_spec)
+log_density = make_log_density(log_likelihood, parameter_spec=parameter_spec)
 
 
 # We can also provide a flattened version, automatically,
@@ -123,8 +122,7 @@ parameter_spec_simplex = {
 def log_density_simplex(unc_params):
     params, log_det_jac = constrain(parameter_spec_simplex, **unc_params)
     alpha_0, alpha_1, beta_1 = params["alpha_0"], params["w"][0], params["w"][1]
-    return (log_det_jac + log_prior(alpha_0, alpha_1, beta_1)
-            + log_likelihood(alpha_0, alpha_1, beta_1))
+    return log_det_jac + log_likelihood(alpha_0, alpha_1, beta_1)
 
 
 @jit

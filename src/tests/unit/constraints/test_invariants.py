@@ -1,4 +1,5 @@
 """Contract of the constraints family: every invariant holds for every entry in CASES."""
+
 from typing import Callable, NamedTuple
 
 import jax
@@ -6,12 +7,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from util import box, positive, simplex, zero_sum
+from densityjax import box, positive, simplex, zero_sum
+
 
 class Case(NamedTuple):
-    make: Callable                   # () -> constraint, 3 to 5 elements per axis
-    in_support: Callable             # (c, y) -> True iff y is finite and satisfies the constraint
-    free: Callable = lambda c, y: y  # (c, y) -> y without outputs determined by the others
+    make: Callable  # () -> constraint, 3 to 5 elements per axis
+    in_support: Callable  # (c, y) -> True iff y is finite and satisfies the constraint
+    free: Callable = (
+        lambda c, y: y
+    )  # (c, y) -> y without outputs determined by the others
+
 
 # helpers
 def fd_jacobian(f, x, eps=1e-6):
@@ -21,7 +26,9 @@ def fd_jacobian(f, x, eps=1e-6):
     def at(dx):
         return np.asarray(f(jnp.asarray((x.ravel() + dx).reshape(x.shape)))).ravel()
 
-    return np.stack([(at(e) - at(-e)) / (2 * eps) for e in np.eye(x.size) * eps], axis=1)
+    return np.stack(
+        [(at(e) - at(-e)) / (2 * eps) for e in np.eye(x.size) * eps], axis=1
+    )
 
 
 def fd_log_volume(f, x, eps=1e-6):
@@ -58,29 +65,51 @@ def drop_last(c, y):
 
 
 CASES = {
-    "positive":         Case(make=lambda: positive(shape=(3,)), in_support=is_positive),
-    "box":              Case(make=lambda: box(lower=-1.0, upper=3.0, shape=(3,)), in_support=is_box),
-    "box_array_bounds": Case(make=lambda: box(lower=jnp.array([-1.0, 0.0, 2.0]),
-                                              upper=jnp.array([1.0, 4.0, 3.0]), shape=(3,)),
-                             in_support=is_box),
-    "box_lower_only":   Case(make=lambda: box(lower=2.0, shape=(3,)), in_support=is_box),
-    "box_upper_only":   Case(make=lambda: box(upper=-1.0, shape=(3,)), in_support=is_box),
-    "box_mixed_bounds": Case(make=lambda: box(lower=jnp.array([-1.0, 2.0, -jnp.inf, -jnp.inf]),
-                                              upper=jnp.array([3.0, jnp.inf, 1.0, jnp.inf]), shape=(4,)),
-                             in_support=is_box),
-    "zero_sum_1d":      Case(make=lambda: zero_sum(5), in_support=is_zero_sum),
-    "zero_sum_2d":      Case(make=lambda: zero_sum((3, 4), axes=(0, 1)), in_support=is_zero_sum),
-    "zero_sum_3d":      Case(make=lambda: zero_sum((3, 4, 5), axes=(0, 1, 2)), in_support=is_zero_sum),
-    "zero_sum_4d":      Case(make=lambda: zero_sum((3, 4, 3, 3), axes=(0, 1, 2, 3)), in_support=is_zero_sum),
-    "simplex_1d":       Case(make=lambda: simplex(4), in_support=is_simplex, free=drop_last),
-    "simplex_2d":       Case(make=lambda: simplex((3, 4)), in_support=is_simplex, free=drop_last),
-    "simplex_2d_axis0": Case(make=lambda: simplex((3, 4), axis=0), in_support=is_simplex, free=drop_last),
+    "positive": Case(make=lambda: positive(shape=(3,)), in_support=is_positive),
+    "box": Case(make=lambda: box(lower=-1.0, upper=3.0, shape=(3,)), in_support=is_box),
+    "box_array_bounds": Case(
+        make=lambda: box(
+            lower=jnp.array([-1.0, 0.0, 2.0]),
+            upper=jnp.array([1.0, 4.0, 3.0]),
+            shape=(3,),
+        ),
+        in_support=is_box,
+    ),
+    "box_lower_only": Case(make=lambda: box(lower=2.0, shape=(3,)), in_support=is_box),
+    "box_upper_only": Case(make=lambda: box(upper=-1.0, shape=(3,)), in_support=is_box),
+    "box_mixed_bounds": Case(
+        make=lambda: box(
+            lower=jnp.array([-1.0, 2.0, -jnp.inf, -jnp.inf]),
+            upper=jnp.array([3.0, jnp.inf, 1.0, jnp.inf]),
+            shape=(4,),
+        ),
+        in_support=is_box,
+    ),
+    "zero_sum_1d": Case(make=lambda: zero_sum(5), in_support=is_zero_sum),
+    "zero_sum_2d": Case(
+        make=lambda: zero_sum((3, 4), axes=(0, 1)), in_support=is_zero_sum
+    ),
+    "zero_sum_3d": Case(
+        make=lambda: zero_sum((3, 4, 5), axes=(0, 1, 2)), in_support=is_zero_sum
+    ),
+    "zero_sum_4d": Case(
+        make=lambda: zero_sum((3, 4, 3, 3), axes=(0, 1, 2, 3)), in_support=is_zero_sum
+    ),
+    "simplex_1d": Case(make=lambda: simplex(4), in_support=is_simplex, free=drop_last),
+    "simplex_2d": Case(
+        make=lambda: simplex((3, 4)), in_support=is_simplex, free=drop_last
+    ),
+    "simplex_2d_axis0": Case(
+        make=lambda: simplex((3, 4), axis=0), in_support=is_simplex, free=drop_last
+    ),
 }
 
 OUTPUTS = {"forward": lambda c, x: c(x), "log_det": lambda c, x: c.jacobian(x)}
 
 each_case = pytest.mark.parametrize("case", list(CASES.values()), ids=list(CASES))
-each_output = pytest.mark.parametrize("output", list(OUTPUTS.values()), ids=list(OUTPUTS))
+each_output = pytest.mark.parametrize(
+    "output", list(OUTPUTS.values()), ids=list(OUTPUTS)
+)
 
 
 def random_x(c, batch=()):
@@ -114,7 +143,9 @@ def test_log_det__matches_finite_differences(case):
 def test_output_under_jit__equals_eager_output(case, output):
     c = case.make()
     x = random_x(c)
-    np.testing.assert_allclose(jax.jit(lambda u: output(c, u))(x), output(c, x), atol=1e-10)
+    np.testing.assert_allclose(
+        jax.jit(lambda u: output(c, u))(x), output(c, x), atol=1e-10
+    )
 
 
 @each_output
@@ -123,7 +154,9 @@ def test_output_under_vmap__equals_output_per_item(case, output):
     c = case.make()
     xs = random_x(c, batch=(3,))
     per_item = np.stack([output(c, x) for x in xs])
-    np.testing.assert_allclose(jax.vmap(lambda u: output(c, u))(xs), per_item, atol=1e-10)
+    np.testing.assert_allclose(
+        jax.vmap(lambda u: output(c, u))(xs), per_item, atol=1e-10
+    )
 
 
 """ tests helpers for finite-difference checks (only for debugging)
