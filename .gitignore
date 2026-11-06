@@ -17,6 +17,7 @@ _environment
 /.pytest_cache/
 __pycache__/
 *.py[cod]
+.venv/
 
 # Quarto tmp files
 /.quarto/
@@ -47,3 +48,5 @@ DS_Store
 
 
 **/*.quarto_ipynb
+env/
+.vscode/

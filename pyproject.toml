@@ -1,0 +1,14 @@
+[project]
+name = "dj-paper"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = ["jax", "numpy"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["examples/tests"]
+pythonpath = ["examples", "examples/tests"]
+addopts = ["--import-mode=importlib", "--strict-markers"]
+markers = ["slow: takes more than a few seconds; deselect with -m 'not slow'"]
