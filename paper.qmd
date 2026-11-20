@@ -1,3 +1,8 @@
+---
+resources:
+  - visualizations/stan-scatter-widget.js
+---
+
 # Motivation
 
 ## Bayesian workflow
@@ -1184,6 +1189,64 @@ pred_draws = jax.vmap(model.forward, in_axes=(0, 0))(keys,draws)
 print(f"{mean(pred_draws)=}")
 print(f"{std(draws)=}")
 ```
+
+
+# JAX a la Stan: The Sharp Bits
+
+The "sharp bits" of JAX [@jax2026sharpbits] of JAX introduce some gotchas for Bayesian workflows in JAX. 
+In particular nested parameter constrains and for loop's can be a bit tricky. This section introduces remedies provided
+in `densejax` and guidance on good practices for Bayesian workflows.  
+
+## Nested constraint transforms in JAX with `densejax`
+
+It is convenient to have parameter constraints handled behind the scenes, as in Stan. BlackJAX does not handle parameter constraints, and its gradient-based
+samplers need a log density defined on unconstrained space. Above we discussed that abstracting parameter transformations can be done in JAX with relatively simple classes.
+Some constraints, however, depend on the values of other parameters, which are only known at run time. This makes them harder to handle: the bounds must be computed inside
+the traced code so that gradients flow through them, while the constraint specification must be built once and kept static so that jit does not recompile on every call.
+For these cases, `densejax` provides `bind`, which stores the names of the parent parameters as static data, together with a function that builds the constraint.
+
+```python
+parameters = {
+    'alpha_0': positive(),
+    'alpha_1': box(0.0, 1.0),
+    'beta_1': bind('alpha_1', lambda a: box(0.0, 1.0 - a)),  # alpha_1 + beta_1 < 1
+}
+```
+
+The function passed to `bind` is called at trace time with a tracer rather than a number, so this function must be traceable and
+cannot use Python control flow on the parent's value. A condition such as `if a < 0.5` raises an error at trace time. 
+
+In Stan, the same constraints, including the bound on `beta_1` that depends on `alpha_1`, are written as:
+
+```stan
+parameters {
+  real<lower=0> alpha_0;
+  real<lower=0,upper=1> alpha_1;
+  real<lower=0,upper=(1-alpha_1)> beta_1;
+}
+```
+
+There is one catch for anyone writing new constraints. A constraint's `jacobian` can usually drop terms that do not depend on the unconstrained value,
+since constant terms do not affect MCMC. Under `bind`, these terms may no longer be constant. For example, the log Jacobian of `box` includes $\log(U - L)$.
+For fixed bounds this is a harmless constant, but in `bind('alpha_1', lambda a: box(0.0, 1.0 - a))` it becomes $\log(1 - \alpha_1)$,
+which depends on $\alpha_1$. Dropping it would make the sampler silently target the wrong posterior. Constraints used with `bind` therefore need an exact log Jacobian,
+not one that is only correct up to an additive constant.
+
+Note that the above parameter constraint can alternatively be formulated as simplex with one slack variable for the same sampling problem:
+```python
+parameters = {
+    "alpha_0": positive(),
+    "w": simplex(shape=(3,)),
+}
+```
+
+## For loops in JAX with `densejax`
+
+Since JAX compiles functions by tracing them with abstract values, a native Python `for` loop inside a `jit`-compiled function is unrolled,
+so its body is replicated once per iteration in the resulting computation graph. This makes compilation time and memory grow with the iteration count.
+JAX ships structured control-flow primitives to replace Python loops with operations that are compiled once, accept runtime-dependent bounds, 
+and remain compatible with JAX’s transformations such as `grad` and `vmap`. In this section we aim to provide guidance for good coding practice
+and make the case for two thin wrappers provided in `densejax`.
 
 <!-- TODO(bmw): show multi chain -->
 <!-- TODO(bmw): show arviz integration:
