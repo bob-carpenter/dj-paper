@@ -1,6 +1,9 @@
 ---
 resources:
   - visualizations/stan-scatter-widget.js
+  - visualizations/loop-widgets.js
+filters:
+  - visualizations/compare-code.lua
 ---
 
 # Motivation
@@ -1193,9 +1196,11 @@ print(f"{std(draws)=}")
 
 # JAX a la Stan: The Sharp Bits
 
-The "sharp bits" of JAX [@jax2026sharpbits] of JAX introduce some gotchas for Bayesian workflows in JAX. 
-In particular nested parameter constrains and for loop's can be a bit tricky. This section introduces remedies provided
-in `densejax` and guidance on good practices for Bayesian workflows.  
+The "sharp bits" of JAX [@jax2026sharpbits] introduce some gotchas for Bayesian workflows in JAX. 
+Two challenging parts of translating Stan model to JAX are nested constraints, whose bounds depend on other
+parameters, and `for` loops.
+This section shows how `densejax` handles both, and how the loop patterns common in Stan programs are best written in
+JAX.
 
 ## Nested constraint transforms in JAX with `densejax`
 
@@ -1246,7 +1251,8 @@ Since JAX compiles functions by tracing them with abstract values, a native Pyth
 so its body is replicated once per iteration in the resulting computation graph. This makes compilation time and memory grow with the iteration count.
 JAX ships structured control-flow primitives to replace Python loops with operations that are compiled once, accept runtime-dependent bounds, 
 and remain compatible with JAX’s transformations such as `grad` and `vmap`. In this section we aim to provide guidance for good coding practice
-and make the case for two thin wrappers provided in `densejax`.
+and make the case for two thin wrappers provided in `densejax`. Each of the following subsections takes one loop
+pattern, introduces it with a model in which it commonly occurs, and compares the Stan loop with its JAX version.
 
 <!-- TODO(bmw): show multi chain -->
 <!-- TODO(bmw): show arviz integration:
@@ -1262,6 +1268,383 @@ If we had multiple chains, this
 would be something like a np.vstack (or just the result of pmap, maybe?)
 
  -->
+
+### Conditionals
+
+Consider, for example, a change-point model for data pairs `(x[n], y[n])`, such as a dose and a response, in which the
+slope may change at an unknown threshold `c`.
+Because `c` is a parameter, the side of the threshold an observation falls on changes during sampling, so the branch must
+be evaluated for every observation rather than by splitting the data once in advance.
+The parameters of interest are the intercept `a`, the slope `b` below the threshold, the change in slope `d` above it,
+and the threshold `c` itself.
+
+::: {#fig-loop-where fig-pos="H"}
+
+::: {.loop-widget data-example="where"}
+
+```stan
+for (n in 1:N) {
+  mu[n] = a + b * x[n];
+  if (x[n] > c)
+    mu[n] += d * (x[n] - c);
+}
+```
+
+```python
+base = a + b * x
+bump = d * (x - c)          # every element
+take = x > c
+mu = base + jnp.where(take, bump, 0.0)
+```
+
+```{=html}
+<script src="visualizations/loop-widgets.js"></script>
+```
+
+:::
+
+A branch inside the loop. Stan visits one `n` at a time and adds `d * (x[n] - c)` only where `x[n] > c`.
+JAX computes `a + b * x` and the branch value `d * (x - c)` for every element, and `jnp.where` picks one
+value per element. The branch values it discards were still computed, so a NaN among them would still
+reach the gradient.
+[Switch between the views with the buttons: compare the Stan and JAX code, or step through the Stan loop or the JAX version.]{.content-visible when-format="html:js"}
+:::
+
+### Cumulative sums
+
+Consider a model that tracks a candidate's support during an election campaign from weekly opinion polls, each of
+which measures that week's support with sampling error.
+The support follows a random walk: each week, it is the support of the week before plus a change `delta[t]`, so the
+support in week $t$ is the starting support `support0` plus the running sum of all changes up to $t$, which `jnp.cumsum`
+computes without a sequential loop.
+The parameters of interest are the support in each week and the scale `sigma` of the weekly changes, which says how
+fast the support can move.
+
+::: {#fig-loop-cumsum fig-pos="H"}
+
+::: {.loop-widget data-example="cumsum"}
+
+```stan
+support[1] = support0 + delta[1];
+for (t in 2:T)
+  support[t] = support[t - 1] + delta[t];
+```
+
+```python
+support = support0 + jnp.cumsum(delta)
+```
+
+```{=html}
+<script src="visualizations/loop-widgets.js"></script>
+```
+
+:::
+
+A running sum. Each step of Stan's loop needs the support of the week before. `jnp.cumsum` is one operation, which
+XLA splits into blocks (4 elements here, 16 on CPU): it sums within every block at once, then adds the totals of
+earlier blocks, so the number of levels grows with $\log T$ rather than $T$. Adding `support0` then works on every week
+at once.
+[Switch between the views with the buttons: compare the Stan and JAX code, or step through the Stan loop or the JAX version.]{.content-visible when-format="html:js"}
+:::
+
+### Partial pooling
+
+Consider a hierarchical regression model for observations that each carry a group label, such as students in schools
+or patients in hospitals, usually with groups of different sizes.
+Each group has its own coefficients, drawn from a common population distribution, which pulls the estimates of every
+group toward the population mean, those of small groups the most; this is partial pooling.
+Every observation needs the coefficients of its own group, which Stan looks up inside the loop as `beta[group[n]]` and
+JAX gathers for all observations at once with `beta[group]`.
+The parameters of interest are the coefficients of each group, the rows of `beta`, and the mean and spread of the
+population distribution, which say how much the groups differ.
+
+::: {#fig-loop-gather fig-pos="H"}
+
+::: {.loop-widget data-example="gather"}
+
+```stan
+for (n in 1:N)
+  y[n] ~ normal(X[n] * beta[group[n]],
+                sigma);
+```
+
+```python
+# group: (N,) 0-based; X: (N, P); beta: (G, P)
+mu = jnp.sum(X * beta[group], axis=-1)
+```
+
+```{=html}
+<script src="visualizations/loop-widgets.js"></script>
+```
+
+:::
+
+Looking up group coefficients. Stan reads the row `beta[group[n]]` once per loop iteration. `beta[group]`
+gathers the rows of all observations in one operation, for groups of any size, and multiplying by `X`
+and summing each row gives all of `mu` at once.
+[Switch between the views with the buttons: compare the Stan and JAX code, or step through the Stan loop or the JAX version.]{.content-visible when-format="html:js"}
+:::
+
+### Differential equations
+
+Consider a population pharmacokinetic model, in which drug concentrations are measured at a few time points for each
+of several subjects.
+Each subject's concentrations follow a compartment model, an ODE for the amount of drug in the gut and in the blood,
+with the subject's own parameters; with Michaelis–Menten elimination, this ODE has no closed-form solution and is
+solved numerically.
+The subjects are independent, but every solve is an adaptive loop of its own whose number of steps differs between
+subjects, so the solver is written for one subject and mapped over all of them with `jax.vmap`.
+The parameters of interest are each subject's absorption rate `ka` and Michaelis–Menten elimination parameters `vm`
+and `km`, collected in `theta[j]`, together with their population means and the variability between subjects.
+
+::: {#fig-loop-vmap-ode fig-pos="H"}
+
+::: {.loop-widget data-example="vmap-ode"}
+
+```stan
+for (j in 1:J) {
+  array[T] vector[2] x =
+    ode_rk45(pk, x0, 0, ts, theta[j]);
+  y[j] ~ normal(to_vector(x[:, 2]), sigma);
+}
+```
+
+```python
+def subject_lp(y_j, theta_j):
+    x = odeint(pk, x0, ts, *theta_j)   # ts from 0
+    return st.norm.logpdf(y_j, x[1:, 1], sigma).sum()
+
+lp = jax.vmap(subject_lp)(y, theta).sum()
+```
+
+```{=html}
+<script src="visualizations/loop-widgets.js"></script>
+```
+
+:::
+
+One ODE solve per subject. Stan solves the subjects one after another, each with its own adaptive steps.
+Under `jax.vmap`, one solver loop advances all subjects at each iteration, each with its own step size,
+and runs until the last subject reaches the final time; subjects that have finished are masked.
+[Switch between the views with the buttons: compare the Stan and JAX code, or step through the Stan loop or the JAX version.]{.content-visible when-format="html:js"}
+:::
+
+### Autoregression
+
+Consider a first-order autoregressive model, AR(1), for a single observed series, such as a monthly price index, in
+which each value is regressed on the previous one.
+Because these previous values are observed rather than computed by the model, all terms of the likelihood can be
+evaluated at once from two shifted views of the data, and no recursion is needed.
+The parameters of interest are the intercept `alpha`, the autoregressive coefficient `beta`, which measures how
+strongly each value carries over to the next, and the noise scale `sigma`.
+
+::: {#fig-loop-slicing fig-pos="H"}
+
+::: {.loop-widget data-example="slicing"}
+
+```stan
+for (t in 2:T)
+  y[t] ~ normal(alpha + beta * y[t - 1],
+                sigma);
+```
+
+```python
+lp = st.norm.logpdf(
+    y[1:],                    # y1 … y6
+    alpha + beta * y[:-1],    # y0 … y5
+    sigma).sum()
+```
+
+```{=html}
+<script src="visualizations/loop-widgets.js"></script>
+```
+
+:::
+
+A recurrence on observed data. Each term pairs `y[t]` with the observed `y[t - 1]`, so nothing is carried
+from step to step. The shifted views `y[1:]` and `y[:-1]` line up every pair, and one element-wise call
+evaluates all terms.
+[Switch between the views with the buttons: compare the Stan and JAX code, or step through the Stan loop or the JAX version.]{.content-visible when-format="html:js"}
+:::
+
+### Covariance matrices
+
+Consider a multivariate normal model for vectors of $K$ correlated measurements per unit, such as several blood markers
+per patient, with a Wishart or inverse-Wishart prior on the covariance matrix.
+The Bartlett decomposition builds the Cholesky factor of this matrix from $K$ chi-square and $K(K-1)/2$ standard normal
+parameters, and placing these parameters at fixed positions of a triangular matrix is a scatter.
+The parameter of interest is the covariance matrix itself, with its variances and correlations; the parameters `c`
+and `z` only serve to build its Cholesky factor.
+
+::: {#fig-scatter fig-pos="H"}
+
+::: {.stan-scatter data-k="4"}
+
+```stan
+for (j in 1:(K - 1)) {
+  for (i in (j + 1):K) {
+    A[i, j] = z[count];
+    count += 1;
+  }
+  for (i in 1:(j - 1)) {
+    A[i, j] = 0.0;
+  }
+  A[j, j] = sqrt(c[j]);
+}
+// after the loop
+for (i in 1:(K - 1)) A[i, K] = 0;
+A[K, K] = sqrt(c[K]);
+```
+
+```python
+rows = [i for j in range(K-1)
+          for i in range(j+1, K)]
+cols = [j for j in range(K-1)
+          for i in range(j+1, K)]
+A = (jnp.diag(jnp.sqrt(c))
+     .at[rows, cols].set(z))
+```
+
+```{=html}
+<script src="visualizations/stan-scatter-widget.js"></script>
+```
+
+:::
+
+Filling the lower-triangular matrix $A$. Stan writes it one scalar at a time,
+column by column, and `count` is the position of each `z` in that order. JAX
+records the same order in `rows` and `cols`, lays down the diagonal and the
+zeros with `jnp.diag`, and places all of `z` with one `.at[rows, cols].set(z)`.
+[Switch between the views with the buttons: compare the Stan and JAX code, or step through the Stan loop or the JAX version.]{.content-visible when-format="html:js"}
+:::
+
+### Recurrences
+
+Consider an epidemic renewal model, in which a time-varying reproduction number $R_t$ drives the daily infections.
+The infections on day $t$ are $R_t$ times a weighted sum of the infections on the previous $S$ days,
+$I_t = R_t \sum_{s=1}^{S} g_s I_{t-s}$, where the weights $g$ come from the generation interval, the time from one
+infection to the next in a chain of transmission.
+The infections are latent, so each day needs values that the model has just computed rather than observed, and, unlike
+in the autoregression above, the steps must run in order.
+The parameters of interest are $R_t$, often a random walk on the log scale built with `cumsum` as above, and the daily
+infections it implies, which start from $S$ seed days.
+
+For loops in which each new value depends on values the loop itself has computed, `densejax` provides `recurrence`.
+It starts from `p` known values and computes `n` new values, each from the previous `p` and the inputs of its step:
+
+```python
+series = recurrence(f, init, inputs)    # new = f(lags, inputs[i])
+```
+
+`f` always sees the last `p` values, nearest first, so `lags[0]` is the previous value.
+The result keeps `init` at the start, so it has `p + n` values, aligned with Stan's array.
+Underneath is `jax.lax.scan`: the step is compiled once, however many steps there are, and the steps run one after
+another, as in Stan; what `recurrence` adds is the bookkeeping of the window.
+
+::: {#fig-loop-recurrence fig-pos="H"}
+
+::: {.loop-widget data-example="recurrence"}
+
+```stan
+infections[1:S] = seed;
+for (t in (S + 1):T)
+  infections[t] = R[t] * dot_product(
+      g, reverse(infections[(t - S):(t - 1)]));
+```
+
+```python
+infections = recurrence(
+    lambda lags, R_t: R_t * (g @ lags),  # lags[s-1] = infections[t-s]
+    seed,                                # init: S days, in time order
+    R[S:])                               # inputs: one R_t per new day
+```
+
+```{=html}
+<script src="visualizations/loop-widgets.js"></script>
+```
+
+:::
+
+The renewal equation. Each step of Stan's loop reads the $S$ days before it, which the loop has just computed, and
+`reverse` puts the nearest day first to line up with `g`. `recurrence` passes `f` the same days, nearest first, as
+`lags`, together with that day's `R_t`; it pushes each new day onto the front of the window and keeps `seed` at the
+start of the result. Both run the steps in order.
+[Switch between the views with the buttons: compare the Stan and JAX code, or step through the Stan loop or the JAX version.]{.content-visible when-format="html:js"}
+:::
+
+`init` may also be a dict of arrays, so that several series, such as the infections and the remaining susceptibles,
+are updated together.
+With `has_aux=True`, `f` also returns an auxiliary result, which is collected for every step but not fed back.
+A Kalman filter carries the mean and variance of the state in a dict, and returns the log-likelihood
+term of each observation as the auxiliary result:
+
+```python
+def kalman_step(lags, y_t):
+    m, P = lags["m"][0], lags["P"][0]   # previous mean and variance of the state
+    ...                                 # predict, then update with y_t
+    return {"m": m, "P": P}, loglik_t
+
+states, loglik = recurrence(f=kalman_step, init={"m": m0, "P": P0}, inputs=y, has_aux=True)
+lp += loglik.sum()
+```
+
+### Weighted lagged sums
+
+The renewal model of the previous section is fitted to counts reported with a delay, such as daily deaths that follow
+infection by a variable number of days and are often reported by week.
+Each expected count is a weighted sum of earlier infections, which `lagged_sum` computes for all days at once, and
+`segment_sum` then adds the days into weeks, which may have different lengths.
+The delay distribution `pi` is usually fixed from earlier studies.
+
+When each value is a weighted sum of earlier *inputs*, as the deaths are of the infections, nothing is fed back, and
+`densejax` provides `lagged_sum`:
+
+```python
+y = lagged_sum(jnp.array([a, b, c]), x, first_lag=1)
+# y[t] = a·x[t-1] + b·x[t-2] + c·x[t-3],  with x = 0 before its start
+```
+
+The kernel sits backwards under `x` and moves one step to the right for each output.
+Each `y[t]` reads only `x`, so no output waits for another and all of `y` is computed at once.
+Underneath is `jax.scipy.signal.convolve`, and `lagged_sum` adds the bookkeeping of the alignment, so that `y[t]` uses
+only `x` up to `t` and `kernel[0]` is the nearest lag.
+`y` has the same length as `x`.
+For a kernel of `d` weights, the first `first_lag + d - 1` values of `y` (here 3) reach back before the start of `x`,
+where `x` counts as 0, so they are partial sums.
+If the values before the start are unknown, they can be parameters as well: prepend them to `x` and drop the same
+number of values from the start of `y`.
+In the renewal model, the expected deaths are the infections weighted by the delay distribution `pi`, and the weekly
+counts add up the days of each week:
+
+::: {#fig-loop-lagged-sum fig-pos="H"}
+
+::: {.loop-widget data-example="lagged-sum"}
+
+```stan
+for (t in 1:T)
+  for (d in 1:min(t, D))
+    deaths[t] += pi[d] * infections[t - d + 1];
+for (t in 1:T)
+  weekly[week[t]] += deaths[t];
+```
+
+```python
+deaths = lagged_sum(pi, infections)
+weekly = jax.ops.segment_sum(
+    deaths, week, num_segments=W)
+```
+
+```{=html}
+<script src="visualizations/loop-widgets.js"></script>
+```
+
+:::
+
+The delay from infections to deaths, and a sum over weeks of different lengths. Stan's nested loop adds one delayed
+term at a time, and a second loop adds each day into its week. `lagged_sum` computes every `deaths[t]` at once, and
+`jax.ops.segment_sum` adds each day into its week with one scatter-add, without padding.
+[Switch between the views with the buttons: compare the Stan and JAX code, or step through the Stan loop or the JAX version.]{.content-visible when-format="html:js"}
+:::
 
 # References {.unnumbered}
 
