@@ -55,8 +55,7 @@ def recurrence(f, init, *xs, length=None, reverse=False, has_aux=False):
     def step(window, x_t):
         out = f(window, *x_t)
         new, aux = out if has_aux else (out, None)
-        window = tmap(lambda w, n: jnp.concatenate([jnp.asarray(n, w.dtype)[None], w[:-1]]),
-                      window, new)
+        window = tmap(lambda w, n: jnp.concatenate([jnp.asarray(n)[None], w[:-1]]), window, new)
         return window, (new, aux)
 
     _, (new, aux) = jax.lax.scan(step, window, xs, length=length, reverse=reverse)
